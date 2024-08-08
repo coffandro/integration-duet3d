@@ -15,21 +15,23 @@ This package is in an early stage of development.
 It is not yet feature complete and may contain bugs.
 
 Supported features:
-- [x] Printer registration
-- [x] Printer status update
-- [x] Webcam snapshot livestream
-- [x] GCode receiving
-- [x] File downloading
-- [x] Printer control (start, pause, resume, cancel)
+
+- Printer registration
+- Printer status update
+- Webcam snapshot livestream
+- GCode receiving
+- File downloading
+- Printer control (start, pause, resume, cancel)
 
 Missing features:
-- [] GCode Macros / Scripts
-- [] Device healts update
-- [] Bed leveling
-- [] Filament Sensor
-- [] PSU Control
-- [] GCode terminal
-- [] Receive messages from Printer in Simplyprint.io
+
+- GCode Macros / Scripts
+- Device healts update
+- Bed leveling
+- Filament Sensor
+- PSU Control
+- GCode terminal
+- Receive messages from Printer in Simplyprint.io
 
 
 ------------

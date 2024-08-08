@@ -375,7 +375,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.HasGcodeChangesEvent.on
     async def on_has_gcode_changes(self, event: Demands.HasGcodeChangesEvent):
         """Check if there are GCode changes."""
-        print(event).scripts
+        # print(event)
+        pass
 
     @Demands.GetGcodeScriptBackupsEvent.on
     async def on_get_gcode_script_backups(
@@ -383,7 +384,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         event: Demands.GetGcodeScriptBackupsEvent,
     ):
         """Get GCode script backups."""
-        print(event)
+        # print(event)
+        pass
 
     # @Events.StreamReceivedEvent.on
     # async def on_stream_received(self, event: Events.StreamReceivedEvent):
