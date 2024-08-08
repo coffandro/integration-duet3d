@@ -1,0 +1,4 @@
+simplyprint_ws_client @ git+https://github.com/SimplyPrint/printer-ws-client.git@main
+aiohttp
+attrs
+imageio[ffmpeg]

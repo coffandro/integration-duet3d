@@ -1,0 +1,17 @@
+[Unit]
+Description=Meltingplot Duet <-> Simplyprint connector
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+StartLimitInterval=0
+StartLimitBurst=1440
+RestartSec=60
+ExecStart=/usr/local/bin/simplyprint start
+WorkingDirectory=/usr/local
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target
