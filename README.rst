@@ -59,7 +59,7 @@ Installation
     sudo systemctl start simplyprint-connector.service
 
 -----------------------------
-Content of VirtualClient.json
+Content of DuetConnector.json
 -----------------------------
 .. code-block:: json
 
