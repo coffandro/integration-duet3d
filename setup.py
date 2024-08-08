@@ -28,6 +28,7 @@ setup(
     name=PACKAGE_NAME,
     description='Simplyprint.io connector for 3D printers running Duet firmware.',
     long_description=README,
+    long_description_content_type='text/x-rst',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
     author='Tim Schneider',

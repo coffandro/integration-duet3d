@@ -1,5 +1,5 @@
 Meltingplot Duet <-> Simplyprint connector
-=====================
+==========================================
 
 This package provides a connector between a Duet based 3D printer and the
 Simplyprint.io cloud service.
@@ -79,9 +79,9 @@ Content of DuetConnector.json
     ]
 
 
----------------------
+-----------------------------------------------
 Usage of Meltingplot Duet Simplyprint Connector
----------------------
+-----------------------------------------------
 
 Create a configuration.
 Start the duet simplyprint connector.
