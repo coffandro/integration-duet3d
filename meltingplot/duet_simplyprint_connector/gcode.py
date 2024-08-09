@@ -33,7 +33,7 @@ class GCodeCommand():
             gcode_line = ''
 
         if len(self.comment) > 1:
-            fp.write(gcode_line)
+            fp.write(gcode_line.rstrip())
             if len(self.code) > 0:
                 fp.write(' ; '.rjust(max(1, 60 - len(gcode_line))))
             fp.write(self.comment[0])
@@ -43,7 +43,7 @@ class GCodeCommand():
                 fp.write(c)
                 fp.write('\n')
         elif len(self.comment) == 1:
-            fp.write(gcode_line)
+            fp.write(gcode_line.rstrip())
             if len(self.code) > 0:
                 fp.write(' ; '.rjust(max(1, 60 - len(gcode_line))))
             else:
@@ -51,7 +51,7 @@ class GCodeCommand():
             fp.write(self.comment[0])
             fp.write('\n')
         else:
-            fp.write(gcode_line)
+            fp.write(gcode_line.rstrip())
             fp.write('\n')
 
 
