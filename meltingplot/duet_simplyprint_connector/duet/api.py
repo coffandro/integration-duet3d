@@ -32,10 +32,11 @@ def reauthenticate(retries=3):
                     status_code = e.status
                     status['retries'] -= 1
                     if status_code == 401:
+                        await asyncio.sleep(5**(retries - status['retries']))
                         response = await args[0].reconnect()
                         if response['err'] == 0:
                             status['retries'] = retries
-                    if status_code == 503:
+                    elif status_code == 503:
                         # Besides, RepRapFirmware may run short on memory and
                         # may not be able to respond properly. In this case,
                         # HTTP status code 503 is returned.
@@ -219,6 +220,7 @@ class RepRapFirmware():
             response = await r.read()
         return response
 
+    @reauthenticate()
     async def rr_upload_stream(
         self,
         filepath: str,
