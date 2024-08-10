@@ -318,6 +318,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         ):
             await self._update_job_info()
 
+        await self.send_ping()
+
     async def stop(self):
         """Stop the client."""
         await self.duet.disconnect()
