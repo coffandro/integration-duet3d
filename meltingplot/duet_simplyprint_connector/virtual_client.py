@@ -50,8 +50,6 @@ class VirtualConfig(PrinterConfig):
 class VirtualClient(DefaultClient[VirtualConfig]):
     """A Websocket client for the SimplyPrint.io Service."""
 
-    job_progress_alpha: float = 0.05
-
     def __init__(self, *args, **kwargs):
         """Initialize the client."""
         super().__init__(*args, **kwargs)
@@ -59,7 +57,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.duet = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
+            logger=self.logger,
         )
+
+        self._duet_connected = False
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent):
@@ -196,7 +197,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.printer.status = PrinterStatus.OFFLINE
 
-        await self.duet.connect()
+    async def _connect_to_duet(self):
+        try:
+            await self.duet.connect()
+            self._duet_connected = True
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            self.printer.status = PrinterStatus.OFFLINE
 
         try:
             board = await self.duet.rr_model(key='boards[0]')
@@ -212,7 +218,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _update_printer_status(self):
         try:
             printer_status = await self.duet.rr_model(key='', frequently=True)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            self.logger.exception(
+                "An exception occurred while updating the printer status",
+            )
             self.printer.status = PrinterStatus.OFFLINE
             return
 
@@ -276,7 +285,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 frequently=False,
                 depth=5,
             )
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            self.logger.exception(
+                "An exception occurred while updating the job info",
+            )
             return
 
         try:
@@ -312,6 +324,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def tick(self):
         """Update the client state."""
+        if not self._duet_connected:
+            await self._connect_to_duet()
+
         await self._update_printer_status()
 
         if self.printer.status != PrinterStatus.OFFLINE and self._is_printing(

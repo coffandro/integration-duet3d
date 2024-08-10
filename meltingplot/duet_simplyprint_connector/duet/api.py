@@ -5,8 +5,6 @@
 import asyncio
 import datetime
 import logging
-from contextlib import asynccontextmanager
-from types import AsyncGeneratorType
 from typing import AsyncIterable, BinaryIO, Callable, Optional
 from zlib import crc32
 
@@ -15,79 +13,44 @@ import aiohttp
 import attr
 
 
-@asynccontextmanager
-async def handle_reconnect(
-    status,
-    retries,
-    function_instance,
-    *args,
-    **kwargs,
-):
-    """Context managaer to handle reconnection to the Duet."""
-    while status['retries']:
-        try:
-            yield function_instance
-            return
-        except asyncio.TimeoutError:
-            logging.getLogger().exception('TimeoutError')
-            status['retries'] -= 1
-            await asyncio.sleep(5**(retries - status['retries']))
-        except aiohttp.ClientResponseError as e:
-            logging.getLogger().exception('ClientResponseError')
-            status_code = e.status
-            status['retries'] -= 1
-            if status_code == 401:
-                await asyncio.sleep(5**(retries - status['retries']))
-                response = await args[0].reconnect()
-                if response['err'] == 0:
-                    status['retries'] = retries
-            elif status_code == 503:
-                # Besides, RepRapFirmware may run short on memory and
-                # may not be able to respond properly. In this case,
-                # HTTP status code 503 is returned.
-                await asyncio.sleep(60)
-            else:
-                raise e from e
-    raise asyncio.TimeoutError(
-        'Retried {} times to reauthenticate.'.format(retries),
-    )
-
-
 def reauthenticate(retries=3):
     """Reauthenticate HTTP API requests."""
-    status = {'retries': retries}
 
     def decorator(f):
 
-        def decorated(*args, **kwargs):
-            function_instance = f(*args, **kwargs)
-            if isinstance(function_instance, AsyncGeneratorType):
+        async def inner(*args, **kwargs):
+            status = {'retries': retries}
+            while status['retries']:
+                try:
+                    return await f(*args, **kwargs)
+                except asyncio.TimeoutError:
+                    args[0].logger.error('TimeoutError - retry')
+                    status['retries'] -= 1
+                    await asyncio.sleep(5**(retries - status['retries']))
+                except aiohttp.ClientResponseError as e:
+                    status_code = e.status
+                    status['retries'] -= 1
+                    if status_code == 401:
+                        args[0].logger.error('Unauthorized - retry')
+                        await asyncio.sleep(5**(retries - status['retries']))
+                        response = await args[0].reconnect()
+                        if response['err'] == 0:
+                            status['retries'] = retries
+                    elif status_code == 503:
+                        # Besides, RepRapFirmware may run short on memory and
+                        # may not be able to respond properly. In this case,
+                        # HTTP status code 503 is returned.
+                        args[0].logger.error('Duet busy - retry')
+                        await asyncio.sleep(60)
+                    else:
+                        raise asyncio.TimeoutError(
+                            'Wrong response from Server.',
+                        )
+            raise asyncio.TimeoutError(
+                'Retried {} times to reauthenticate.'.format(retries),
+            )
 
-                async def inner():
-                    async with handle_reconnect(
-                        status,
-                        retries,
-                        function_instance,
-                        *args,
-                        **kwargs,
-                    ):
-                        async for i in function_instance:
-                            yield i
-            else:
-
-                async def inner():
-                    async with handle_reconnect(
-                        status,
-                        retries,
-                        function_instance,
-                        *args,
-                        **kwargs,
-                    ):
-                        return await function_instance
-
-            return inner()
-
-        return decorated
+        return inner
 
     return decorator
 
@@ -102,6 +65,7 @@ class RepRapFirmware():
     http_timeout = attr.ib(type=int, default=15)
     http_retries = attr.ib(type=int, default=3)
     session = attr.ib(type=aiohttp.ClientSession, default=None)
+    logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
 
     async def connect(self) -> dict:
         """Connect to the Duet."""
@@ -214,7 +178,6 @@ class RepRapFirmware():
             response = await r.text()
         return response
 
-    @reauthenticate()
     async def rr_download(self, filepath, chunk_size=1024) -> AsyncIterable:
         """rr_download Download File from Duet."""
         url = 'http://{0}/rr_download'.format(self.address)
@@ -257,7 +220,6 @@ class RepRapFirmware():
             response = await r.read()
         return response
 
-    @reauthenticate()
     async def rr_upload_stream(
         self,
         filepath: str,
