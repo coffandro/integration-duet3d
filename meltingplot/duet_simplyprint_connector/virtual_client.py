@@ -366,8 +366,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.WebcamSnapshotEvent.on
     async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
         """Take a snapshot from the webcam."""
-        if event.timer is not None and event.timer > 0:
-            await asyncio.sleep(event.timer / 1000)
         async with self._requrested_webcam_snapshots_lock:
             self._requrested_webcam_snapshots += 1
 
