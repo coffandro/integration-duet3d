@@ -61,6 +61,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
         self._duet_connected = False
+        self._requrested_webcam_snapshots = 0
+        self._requrested_webcam_snapshots_lock = asyncio.Lock()
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent):
@@ -324,16 +326,21 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def tick(self):
         """Update the client state."""
+        await self.send_ping()
+
         if not self._duet_connected:
             await self._connect_to_duet()
 
         await self._update_printer_status()
 
-        if self.printer.status != PrinterStatus.OFFLINE and self._is_printing(
-        ):
-            await self._update_job_info()
+        if self.printer.status != PrinterStatus.OFFLINE:
+            if self._requrested_webcam_snapshots > 0:
+                await self._send_webcam_snapshot()
+                async with self._requrested_webcam_snapshots_lock:
+                    self._requrested_webcam_snapshots -= 1
 
-        await self.send_ping()
+            if self._is_printing():
+                await self._update_job_info()
 
     async def stop(self):
         """Stop the client."""
@@ -346,16 +353,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             True if self.config.webcam_uri is not None else False
         )
 
-    @Demands.WebcamSnapshotEvent.on
-    async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
-        """Take a snapshot from the webcam."""
+    async def _send_webcam_snapshot(self):
         jpg_encoded = await self._fetch_webcam_image()
-        if 'timer' in event.data and event.data['timer'] > 0:
-            await asyncio.sleep(event.data['timer'] / 1000)
         base64_encoded = base64.b64encode(jpg_encoded).decode()
         await self.send_event(
             ClientEvents.StreamEvent(data={"base": base64_encoded}),
         )
+
+    @Demands.WebcamSnapshotEvent.on
+    async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
+        """Take a snapshot from the webcam."""
+        if event.timer is not None and event.timer > 0:
+            await asyncio.sleep(event.timer / 1000)
+        async with self._requrested_webcam_snapshots_lock:
+            self._requrested_webcam_snapshots += 1
 
     @Demands.StreamOffEvent.on
     async def on_stream_off(self, event: Demands.StreamOffEvent):
