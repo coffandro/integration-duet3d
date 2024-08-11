@@ -16,6 +16,7 @@ from simplyprint_ws_client.client.config import PrinterConfig
 from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
 from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterStatus
 from simplyprint_ws_client.helpers.file_download import FileDownload
+from simplyprint_ws_client.helpers.intervals import IntervalTypes
 
 from .duet.api import RepRapFirmware
 from .gcode import GCodeBlock
@@ -334,10 +335,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self._update_printer_status()
 
         if self.printer.status != PrinterStatus.OFFLINE:
-            if self._requrested_webcam_snapshots > 0:
+            if self._requrested_webcam_snapshots > 0 and self.intervals.is_ready(
+                IntervalTypes.WEBCAM,
+            ):
                 await self._send_webcam_snapshot()
-                async with self._requrested_webcam_snapshots_lock:
-                    self._requrested_webcam_snapshots -= 1
 
             if self._is_printing():
                 await self._update_job_info()
@@ -359,6 +360,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self.send_event(
             ClientEvents.StreamEvent(data={"base": base64_encoded}),
         )
+        async with self._requrested_webcam_snapshots_lock:
+            self._requrested_webcam_snapshots -= 1
 
     @Demands.WebcamSnapshotEvent.on
     async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
@@ -419,3 +422,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     # async def on_stream_received(self, event: Events.StreamReceivedEvent):
     #     print("Stream received")
     #     self._image_delivered = True
+
+    @Demands.ApiRestartEvent.on
+    async def on_api_restart(self, event: Demands.ApiRestartEvent):
+        """Restart the API."""
+        self.logger.info("Restarting API")
+        # the api is running as a systemd service, so we can just restart the service
+        # by terminating the process
+        raise KeyboardInterrupt()
