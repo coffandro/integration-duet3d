@@ -219,22 +219,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.set_info("RepRapFirmware", "0.0.1")
 
     async def _update_temperatures(self, printer_status):
-        self.printer.bed_temperature.target = printer_status['result']['heat'][
-            'heaters'][0]['active']
+        self.printer.bed_temperature.actual = printer_status['result']['heat'][
+            'heaters'][0]['current']
         if printer_status['result']['heat']['heaters'][0]['state'] != 'off':
-            self.printer.bed_temperature.actual = printer_status['result'][
-                'heat']['heaters'][0]['current']
+            self.printer.bed_temperature.target = printer_status['result'][
+                'heat']['heaters'][0]['active']
         else:
-            self.printer.bed_temperature.actual = 0.0
+            self.printer.bed_temperature.target = 0.0
 
-        self.printer.tool_temperatures[0].target = printer_status['result'][
-            'heat']['heaters'][1]['active']
+        self.printer.tool_temperatures[0].actual = printer_status['result'][
+            'heat']['heaters'][1]['current']
 
         if printer_status['result']['heat']['heaters'][1]['state'] != 'off':
-            self.printer.tool_temperatures[0].actual = printer_status[
-                'result']['heat']['heaters'][1]['current']
+            self.printer.tool_temperatures[0].target = printer_status[
+                'result']['heat']['heaters'][1]['active']
         else:
-            self.printer.tool_temperatures[0].actual = 0.0
+            self.printer.tool_temperatures[0].target = 0.0
 
         self.printer.ambient_temperature.ambient = 20
 
