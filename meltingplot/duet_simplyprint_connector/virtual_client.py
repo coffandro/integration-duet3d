@@ -329,19 +329,25 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Update the client state."""
         await self.send_ping()
 
-        if not self._duet_connected:
-            await self._connect_to_duet()
+        try:
+            if not self._duet_connected:
+                await self._connect_to_duet()
 
-        await self._update_printer_status()
+            await self._update_printer_status()
 
-        if self.printer.status != PrinterStatus.OFFLINE:
-            if self._requrested_webcam_snapshots > 0 and self.intervals.is_ready(
-                IntervalTypes.WEBCAM,
-            ):
-                await self._send_webcam_snapshot()
+            if self.printer.status != PrinterStatus.OFFLINE:
+                if self._requrested_webcam_snapshots > 0 and self.intervals.is_ready(
+                    IntervalTypes.WEBCAM,
+                ):
+                    await self._send_webcam_snapshot()
 
-            if self._is_printing():
-                await self._update_job_info()
+                if self._is_printing():
+                    await self._update_job_info()
+        except Exception as e:
+            self.logger.exception(
+                "An exception occurred while tikcing the client state",
+                exc_info=e,
+            )
 
     async def stop(self):
         """Stop the client."""
