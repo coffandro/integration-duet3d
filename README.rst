@@ -47,7 +47,6 @@ Installation
     python3 -m venv venv
     source venv/bin/activate
     pip install --upgrade pip setuptools wheel
-    pip install simplyprint_ws_client@git+https://github.com/SimplyPrint/printer-ws-client.git@main
     pip install meltingplot.duet_simplyprint_connector
     # see next section for content of config.json
     simplyprint config new
