@@ -218,6 +218,26 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.firmware.version = board['result']['firmwareVersion']
         self.set_info("RepRapFirmware", "0.0.1")
 
+    async def _update_temperatures(self, printer_status):
+        self.printer.bed_temperature.target = printer_status['result']['heat'][
+            'heaters'][0]['active']
+        if printer_status['result']['heat']['heaters'][0]['state'] != 'off':
+            self.printer.bed_temperature.actual = printer_status['result'][
+                'heat']['heaters'][0]['current']
+        else:
+            self.printer.bed_temperature.actual = 0.0
+
+        self.printer.tool_temperatures[0].target = printer_status['result'][
+            'heat']['heaters'][1]['active']
+
+        if printer_status['result']['heat']['heaters'][1]['state'] != 'off':
+            self.printer.tool_temperatures[0].actual = printer_status[
+                'result']['heat']['heaters'][1]['current']
+        else:
+            self.printer.tool_temperatures[0].actual = 0.0
+
+        self.printer.ambient_temperature.ambient = 20
+
     async def _update_printer_status(self):
         try:
             printer_status = await self.duet.rr_model(key='', frequently=True)
@@ -229,17 +249,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             return
 
         try:
-            self.printer.bed_temperature.target = printer_status['result'][
-                'heat']['heaters'][0]['active']
-            self.printer.bed_temperature.actual = printer_status['result'][
-                'heat']['heaters'][0]['current']
-
-            self.printer.tool_temperatures[0].target = printer_status[
-                'result']['heat']['heaters'][1]['active']
-            self.printer.tool_temperatures[0].actual = printer_status[
-                'result']['heat']['heaters'][1]['current']
-
-            self.printer.ambient_temperature.ambient = 20
+            await self._update_temperatures(printer_status)
         except KeyError:
             self.printer.bed_temperature.actual = 0.0
             self.printer.tool_temperatures[0].actual = 0.0
