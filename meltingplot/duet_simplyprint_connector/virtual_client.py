@@ -337,9 +337,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def tick(self):
         """Update the client state."""
-        await self.send_ping()
-
         try:
+            await self.send_ping()
+
             if not self._duet_connected:
                 await self._connect_to_duet()
 
@@ -355,7 +355,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     await self._update_job_info()
         except Exception as e:
             self.logger.exception(
-                "An exception occurred while tikcing the client state",
+                "An exception occurred while ticking the client state",
                 exc_info=e,
             )
 
