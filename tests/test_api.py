@@ -67,7 +67,8 @@ async def test_rr_download(reprapfirmware, mock_session):
             yield item
 
     mock_session.get.return_value.__aenter__.return_value.content.iter_chunked = chunks
-    await anext(reprapfirmware.rr_download('test.txt'))
+    async for _ in reprapfirmware.rr_download('test.txt'):
+        break
 
     #async for chunk in reprapfirmware.rr_download('test.txt'):
     #    assert chunk in chunks
