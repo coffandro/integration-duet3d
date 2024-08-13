@@ -4,6 +4,7 @@ import asyncio
 import base64
 import pathlib
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,8 +63,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
         self._duet_connected = False
-        self._requrested_webcam_snapshots = 0
-        self._requrested_webcam_snapshots_lock = asyncio.Lock()
+        self._webcam_timeout = 0
+        self._webcam_task_handle = None
+        self._webcam_image = None
+        self._webcam_image_lock = asyncio.Lock()
+        self._requested_webcam_snapshots = 0
+        self._requested_webcam_snapshots_lock = asyncio.Lock()
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent):
@@ -346,7 +351,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self._update_printer_status()
 
             if self.printer.status != PrinterStatus.OFFLINE:
-                if self._requrested_webcam_snapshots > 0 and self.intervals.is_ready(
+                if self._requested_webcam_snapshots > 0 and self.intervals.is_ready(
                     IntervalTypes.WEBCAM,
                 ):
                     await self._send_webcam_snapshot()
@@ -371,29 +376,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     async def _send_webcam_snapshot(self):
-        jpg_encoded = await self._fetch_webcam_image()
+        async with self._webcam_image_lock:
+            if self._webcam_image is None:
+                return
+
+            jpg_encoded = self._webcam_image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
         await self.send_event(
             ClientEvents.StreamEvent(data={"base": base64_encoded}),
         )
-        async with self._requrested_webcam_snapshots_lock:
-            self._requrested_webcam_snapshots -= 1
-
-    @Demands.WebcamSnapshotEvent.on
-    async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
-        """Take a snapshot from the webcam."""
-        async with self._requrested_webcam_snapshots_lock:
-            self._requrested_webcam_snapshots += 1
-
-    @Demands.StreamOffEvent.on
-    async def on_stream_off(self, event: Demands.StreamOffEvent):
-        """Turn off the webcam stream."""
-        pass
+        async with self._requested_webcam_snapshots_lock:
+            self._requested_webcam_snapshots -= 1
 
     async def _fetch_webcam_image(self):
         headers = {"Accept": "image/jpeg"}
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30),
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as session:
             async with session.get(
                 url=self.config.webcam_uri,
@@ -416,6 +414,39 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # jpg_encoded = bytes_array.getvalue()
 
         return jpg_encoded
+
+    async def _webcam_task(self):
+        self.logger.debug('Webcam task started')
+        while time.time() < self._webcam_timeout:
+            try:
+                image = await self._fetch_webcam_image()
+                async with self._webcam_image_lock:
+                    self._webcam_image = image
+            except Exception as e:
+                self.logger.debug("Failed to fetch webcam image: {}".format(e))
+            await asyncio.sleep(10)
+        async with self._webcam_image_lock:
+            self._webcam_image = None
+
+    @Demands.WebcamSnapshotEvent.on
+    async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
+        """Take a snapshot from the webcam."""
+        self._webcam_timeout = time.time() + 60
+        if self._webcam_task_handle is None:
+            self._webcam_task_handle = asyncio.create_task(self._webcam_task())
+
+            def remove_task(task):
+                self._webcam_task_handle = None
+
+            self._webcam_task_handle.add_done_callback(remove_task)
+
+        async with self._requested_webcam_snapshots_lock:
+            self._requested_webcam_snapshots += 1
+
+    @Demands.StreamOffEvent.on
+    async def on_stream_off(self, event: Demands.StreamOffEvent):
+        """Turn off the webcam stream."""
+        pass
 
     @Demands.HasGcodeChangesEvent.on
     async def on_has_gcode_changes(self, event: Demands.HasGcodeChangesEvent):
