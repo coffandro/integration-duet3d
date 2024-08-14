@@ -83,6 +83,7 @@ Content of DuetConnector.json
 Usage of Meltingplot Duet Simplyprint Connector
 -----------------------------------------------
 
-Create a configuration.
-Start the duet simplyprint connector.
-Add the printer via the Simplyprint.io web interface.
+- Create a configuration with `simplyprint config new`
+- Edit the configuration file `~/.config/SimplyPrint/DuetConnector.json`
+- Start the duet simplyprint connector with `simplyprint start` or `systemctl start simplyprint-connector.service`
+- Add the printer via the Simplyprint.io web interface.
