@@ -63,12 +63,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
         self._duet_connected = False
+        self._printer_status = None
+        self._printer_status_lock = asyncio.Lock()
+        self._job_status = None
+        self._job_status_lock = asyncio.Lock()
+
         self._webcam_timeout = 0
         self._webcam_task_handle = None
         self._webcam_image = None
         self._webcam_image_lock = asyncio.Lock()
         self._requested_webcam_snapshots = 0
         self._requested_webcam_snapshots_lock = asyncio.Lock()
+
+        self._background_task = set()
+        self._is_stopped = False
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent):
@@ -147,9 +155,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
-    @Demands.FileEvent.on
-    async def on_file(self, event: Demands.FileEvent):
-        """Download a file from Simplyprint.io to the printer."""
+    async def _download_and_upload_file(self, event: Demands.FileEvent):
         downloader = FileDownload(self)
 
         self.printer.file_progress.state = FileProgressState.DOWNLOADING
@@ -175,7 +181,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.state = FileProgressState.READY
         if event.auto_start:
             self.printer.job_info.filename = event.file_name
-            await self.on_start_print(event)
+            asyncio.run_coroutine_threadsafe(
+                self.on_start_print(event),
+                self.event_loop,
+            )
+
+    @Demands.FileEvent.on
+    async def on_file(self, event: Demands.FileEvent):
+        """Download a file from Simplyprint.io to the printer."""
+        file_task = asyncio.create_task(self._download_and_upload_file())
+        self._background_task.add(file_task)
+        file_task.add_done_callback(self._background_task.discard)
 
     @Demands.StartPrintEvent.on
     async def on_start_print(self, _):
@@ -205,10 +221,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.printer.status = PrinterStatus.OFFLINE
 
+        printer_status_task = asyncio.create_task(self._printer_status_task())
+        self._background_task.add(printer_status_task)
+        printer_status_task.add_done_callback(self._background_task.discard)
+
     async def _connect_to_duet(self):
         try:
-            await self.duet.connect()
-            self._duet_connected = True
+            response = await self.duet.connect()
+            self.logger.debug("Response from Duet: {!s}".format(response))
         except (asyncio.TimeoutError, aiohttp.ClientError):
             self.printer.status = PrinterStatus.OFFLINE
 
@@ -222,6 +242,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.firmware.name = board['result']['firmwareName']
         self.printer.firmware.version = board['result']['firmwareVersion']
         self.set_info("RepRapFirmware", "0.0.1")
+        self._duet_connected = True
 
     async def _update_temperatures(self, printer_status):
         self.printer.bed_temperature.actual = printer_status['result']['heat'][
@@ -243,13 +264,52 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.printer.ambient_temperature.ambient = 20
 
+    async def _printer_status_task(self):
+        while not self._is_stopped:
+            try:
+                if not self._duet_connected:
+                    await self._connect_to_duet()
+            except Exception:
+                await asyncio.sleep(60)
+                continue
+
+            try:
+                printer_status = await self.duet.rr_model(
+                    key='',
+                    frequently=True,
+                )
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred while updating the printer status",
+                )
+                printer_status = None
+            async with self._printer_status_lock:
+                self._printer_status = printer_status
+
+            await asyncio.sleep(1)
+
+            try:
+                job_status = await self.duet.rr_model(
+                    key='job',
+                    frequently=False,
+                    depth=5,
+                )
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred while updating the job info",
+                )
+                job_status = None
+
+            async with self._job_status_lock:
+                self._job_status = job_status
+
+            await asyncio.sleep(1)
+
     async def _update_printer_status(self):
-        try:
-            printer_status = await self.duet.rr_model(key='', frequently=True)
-        except (asyncio.TimeoutError, aiohttp.ClientError):
-            self.logger.exception(
-                "An exception occurred while updating the printer status",
-            )
+        async with self._printer_status_lock:
+            printer_status = self._printer_status
+
+        if printer_status is None:
             self.printer.status = PrinterStatus.OFFLINE
             return
 
@@ -297,16 +357,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     async def _update_job_info(self):
-        try:
-            job_status = await self.duet.rr_model(
-                key='job',
-                frequently=False,
-                depth=5,
-            )
-        except (asyncio.TimeoutError, aiohttp.ClientError):
-            self.logger.exception(
-                "An exception occurred while updating the job info",
-            )
+        async with self._job_status_lock:
+            job_status = self._job_status
+
+        if job_status is None:
             return
 
         try:
@@ -345,9 +399,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             await self.send_ping()
 
-            if not self._duet_connected:
-                await self._connect_to_duet()
-
             await self._update_printer_status()
 
             if self.printer.status != PrinterStatus.OFFLINE:
@@ -366,6 +417,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def stop(self):
         """Stop the client."""
+        self._is_stopped = True
+        for task in self._background_task:
+            task.cancel()
         await self.duet.disconnect()
 
     @Demands.WebcamTestEvent.on
@@ -462,11 +516,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Get GCode script backups."""
         # print(event)
         pass
-
-    # @Events.StreamReceivedEvent.on
-    # async def on_stream_received(self, event: Events.StreamReceivedEvent):
-    #     print("Stream received")
-    #     self._image_delivered = True
 
     @Demands.ApiRestartEvent.on
     async def on_api_restart(self, event: Demands.ApiRestartEvent):

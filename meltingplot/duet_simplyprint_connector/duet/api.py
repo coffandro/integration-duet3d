@@ -31,7 +31,10 @@ def reauthenticate(retries=3):
                     status_code = e.status
                     status['retries'] -= 1
                     if status_code == 401:
-                        args[0].logger.error('Unauthorized - retry')
+                        args[0].logger.error(
+                            'Unauthorized  while requesting {!s} - retry'.
+                            format(e.request_info),
+                        )
                         await asyncio.sleep(5**(retries - status['retries']))
                         response = await args[0].reconnect()
                         if response['err'] == 0:
