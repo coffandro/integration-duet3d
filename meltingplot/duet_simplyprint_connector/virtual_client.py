@@ -189,7 +189,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.FileEvent.on
     async def on_file(self, event: Demands.FileEvent):
         """Download a file from Simplyprint.io to the printer."""
-        file_task = asyncio.create_task(self._download_and_upload_file())
+        file_task = asyncio.create_task(self._download_and_upload_file(event=event))
         self._background_task.add(file_task)
         file_task.add_done_callback(self._background_task.discard)
 
