@@ -121,12 +121,12 @@ class RepRapFirmware():
     @reauthenticate()
     async def rr_model(
         self,
-        key=None,
-        frequently=False,
-        verbose=False,
-        include_null=False,
-        include_obsolete=False,
-        depth=99,
+        key: Optional[str] = None,
+        frequently: Optional[bool] = False,
+        verbose: Optional[bool] = False,
+        include_null: Optional[bool] = False,
+        include_obsolete: Optional[bool] = False,
+        depth: Optional[int] = 99,
     ) -> dict:
         """rr_model Get Machine Model."""
         url = 'http://{0}/rr_model'.format(self.address)
@@ -158,7 +158,7 @@ class RepRapFirmware():
         return response
 
     @reauthenticate()
-    async def rr_gcode(self, gcode) -> str:
+    async def rr_gcode(self, gcode: str) -> str:
         """rr_gcode Send GCode to Duet."""
         url = 'http://{0}/rr_gcode'.format(self.address)
 
@@ -181,7 +181,11 @@ class RepRapFirmware():
             response = await r.text()
         return response
 
-    async def rr_download(self, filepath, chunk_size=1024) -> AsyncIterable:
+    async def rr_download(
+        self,
+        filepath: str,
+        chunk_size: Optional[int] = 1024,
+    ) -> AsyncIterable:
         """rr_download Download File from Duet."""
         url = 'http://{0}/rr_download'.format(self.address)
 
@@ -198,7 +202,7 @@ class RepRapFirmware():
         self,
         filepath: str,
         content: bytes,
-        last_modified: datetime.datetime = None,
+        last_modified: Optional[datetime.datetime] = None,
     ) -> bytes:
         """rr_upload Upload File to Duet."""
         url = 'http://{0}/rr_upload'.format(self.address)
@@ -227,7 +231,7 @@ class RepRapFirmware():
         self,
         filepath: str,
         file: BinaryIO,
-        last_modified: datetime.datetime = None,
+        last_modified: Optional[datetime.datetime] = None,
         progress: Optional[Callable] = None,
     ) -> bytes:
         """rr_upload_stream Upload File to Duet."""
@@ -244,7 +248,7 @@ class RepRapFirmware():
         while chunk := file.read(8096):
             checksum = crc32(chunk, checksum) & 0xffffffff
             if progress:
-                progress(0)
+                progress(0.0)
 
         checksum = checksum & 0xffffffff
         filesize = file.tell()
@@ -303,7 +307,7 @@ class RepRapFirmware():
         return response
 
     @reauthenticate()
-    async def rr_fileinfo(self, name: str = None) -> object:
+    async def rr_fileinfo(self, name: Optional[str] = None) -> object:
         """
         rr_fileinfo Get File Information.
 
@@ -355,7 +359,7 @@ class RepRapFirmware():
         self,
         old_filepath: str,
         new_filepath: str,
-        overwrite: bool = False,
+        overwrite: Optional[bool] = False,
     ) -> object:
         """rr_move Move File.
 

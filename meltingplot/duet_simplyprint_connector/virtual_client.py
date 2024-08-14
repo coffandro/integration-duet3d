@@ -52,7 +52,9 @@ class VirtualConfig(PrinterConfig):
 class VirtualClient(DefaultClient[VirtualConfig]):
     """A Websocket client for the SimplyPrint.io Service."""
 
-    def __init__(self, *args, **kwargs):
+    duet: RepRapFirmware
+
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize the client."""
         super().__init__(*args, **kwargs)
 
@@ -79,17 +81,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._is_stopped = False
 
     @Events.ConnectEvent.on
-    async def on_connect(self, event: Events.ConnectEvent):
+    async def on_connect(self, event: Events.ConnectEvent) -> None:
         """Connect to the printer."""
         self.logger.info('Connected to Simplyprint.io')
 
     @Events.PrinterSettingsEvent.on
-    async def on_printer_settings(self, event: Events.PrinterSettingsEvent):
+    async def on_printer_settings(
+        self,
+        event: Events.PrinterSettingsEvent,
+    ) -> None:
         """Update the printer settings."""
         self.logger.debug("Printer settings: %s", event.data)
 
     @Demands.GcodeEvent.on
-    async def on_gcode(self, event: Demands.GcodeEvent):
+    async def on_gcode(self, event: Demands.GcodeEvent) -> None:
         """Send GCode to the printer."""
         self.logger.debug("Gcode: {!r}".format(event.list))
 
@@ -148,14 +153,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M109
         # M155 # not supported by reprapfirmware
 
-    def _file_progress(self, progress):
-        self.printer.file_progress.percent = 50 + int(
+    def _file_progress(self, progress: float) -> None:
+        self.printer.file_progress.percent = 50 + (
             max(0, min(50, progress / 2)),
         )
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
-    async def _download_and_upload_file(self, event: Demands.FileEvent):
+    async def _download_and_upload_file(
+        self,
+        event: Demands.FileEvent,
+    ) -> None:
         downloader = FileDownload(self)
 
         self.printer.file_progress.state = FileProgressState.DOWNLOADING
@@ -208,7 +216,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.event_loop,
             )
 
-    async def _download_and_upload_file_task(self, event: Demands.FileEvent):
+    async def _download_and_upload_file_task(
+        self,
+        event: Demands.FileEvent,
+    ) -> None:
         try:
             await self._download_and_upload_file(event)
         except Exception as e:
@@ -218,7 +229,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
 
     @Demands.FileEvent.on
-    async def on_file(self, event: Demands.FileEvent):
+    async def on_file(self, event: Demands.FileEvent) -> None:
         """Download a file from Simplyprint.io to the printer."""
         file_task = asyncio.create_task(
             self._download_and_upload_file_task(event=event),
@@ -227,7 +238,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         file_task.add_done_callback(self._background_task.discard)
 
     @Demands.StartPrintEvent.on
-    async def on_start_print(self, _):
+    async def on_start_print(self, _) -> None:
         """Start the print job."""
         await self.duet.rr_gcode(
             'M23 "0:/gcodes/{!s}"'.format(self.printer.job_info.filename),
@@ -235,22 +246,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self.duet.rr_gcode('M24')
 
     @Demands.PauseEvent.on
-    async def on_pause_event(self, _):
+    async def on_pause_event(self, _) -> None:
         """Pause the print job."""
         await self.duet.rr_gcode('M25')
 
     @Demands.ResumeEvent.on
-    async def on_resume_event(self, _):
+    async def on_resume_event(self, _) -> None:
         """Resume the print job."""
         await self.duet.rr_gcode('M24')
 
     @Demands.CancelEvent.on
-    async def on_cancel_event(self, _):
+    async def on_cancel_event(self, _) -> None:
         """Cancel the print job."""
         await self.duet.rr_gcode('M25')
         await self.duet.rr_gcode('M0')
 
-    async def init(self):
+    async def init(self) -> None:
         """Initialize the client."""
         self.printer.status = PrinterStatus.OFFLINE
 
@@ -258,7 +269,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task.add(printer_status_task)
         printer_status_task.add_done_callback(self._background_task.discard)
 
-    async def _connect_to_duet(self):
+    async def _connect_to_duet(self) -> None:
         try:
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
@@ -277,7 +288,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.set_info("RepRapFirmware", "0.0.1")
         self._duet_connected = True
 
-    async def _update_temperatures(self, printer_status):
+    async def _update_temperatures(self, printer_status: dict) -> None:
         self.printer.bed_temperature.actual = printer_status['result']['heat'][
             'heaters'][0]['current']
         if printer_status['result']['heat']['heaters'][0]['state'] != 'off':
@@ -297,7 +308,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.printer.ambient_temperature.ambient = 20
 
-    async def _printer_status_task(self):
+    async def _printer_status_task(self) -> None:
         while not self._is_stopped:
             try:
                 if not self._duet_connected:
@@ -338,7 +349,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(1)
 
-    async def _update_printer_status(self):
+    async def _update_printer_status(self) -> None:
         async with self._printer_status_lock:
             printer_status = self._printer_status
 
@@ -381,7 +392,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.printer.job_info.finished = True
             self.printer.job_info.started = False
 
-    def _is_printing(self):
+    def _is_printing(self) -> bool:
         return (
             self.printer.status == PrinterStatus.PRINTING
             or self.printer.status == PrinterStatus.PAUSED
@@ -389,7 +400,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             or self.printer.status == PrinterStatus.RESUMING
         )
 
-    async def _update_job_info(self):
+    async def _update_job_info(self) -> None:
         async with self._job_status_lock:
             job_status = self._job_status
 
@@ -427,7 +438,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.job_info.layer = job_status['result'][
             'layer'] if 'layer' in job_status['result'] else 0
 
-    async def tick(self):
+    async def tick(self) -> None:
         """Update the client state."""
         try:
             await self.send_ping()
@@ -448,7 +459,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 exc_info=e,
             )
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the client."""
         self._is_stopped = True
         for task in self._background_task:
@@ -456,13 +467,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self.duet.disconnect()
 
     @Demands.WebcamTestEvent.on
-    async def on_webcam_test(self, event: Demands.WebcamTestEvent):
+    async def on_webcam_test(self, event: Demands.WebcamTestEvent) -> None:
         """Test the webcam."""
         self.printer.webcam_info.connected = (
             True if self.config.webcam_uri is not None else False
         )
 
-    async def _send_webcam_snapshot(self):
+    async def _send_webcam_snapshot(self) -> None:
         async with self._webcam_image_lock:
             if self._webcam_image is None:
                 return
@@ -475,7 +486,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         async with self._requested_webcam_snapshots_lock:
             self._requested_webcam_snapshots -= 1
 
-    async def _fetch_webcam_image(self):
+    async def _fetch_webcam_image(self) -> bytes:
         headers = {"Accept": "image/jpeg"}
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=10),
@@ -502,7 +513,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         return jpg_encoded
 
-    async def _webcam_task(self):
+    async def _webcam_task(self) -> None:
         self.logger.debug('Webcam task started')
         while time.time() < self._webcam_timeout:
             try:
@@ -516,7 +527,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self._webcam_image = None
 
     @Demands.WebcamSnapshotEvent.on
-    async def on_webcam_snapshot(self, event: Demands.WebcamSnapshotEvent):
+    async def on_webcam_snapshot(
+        self,
+        event: Demands.WebcamSnapshotEvent,
+    ) -> None:
         """Take a snapshot from the webcam."""
         self._webcam_timeout = time.time() + 60
         if self._webcam_task_handle is None:
@@ -531,12 +545,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self._requested_webcam_snapshots += 1
 
     @Demands.StreamOffEvent.on
-    async def on_stream_off(self, event: Demands.StreamOffEvent):
+    async def on_stream_off(self, event: Demands.StreamOffEvent) -> None:
         """Turn off the webcam stream."""
         pass
 
     @Demands.HasGcodeChangesEvent.on
-    async def on_has_gcode_changes(self, event: Demands.HasGcodeChangesEvent):
+    async def on_has_gcode_changes(
+        self,
+        event: Demands.HasGcodeChangesEvent,
+    ) -> None:
         """Check if there are GCode changes."""
         # print(event)
         pass
@@ -545,13 +562,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def on_get_gcode_script_backups(
         self,
         event: Demands.GetGcodeScriptBackupsEvent,
-    ):
+    ) -> None:
         """Get GCode script backups."""
         # print(event)
         pass
 
     @Demands.ApiRestartEvent.on
-    async def on_api_restart(self, event: Demands.ApiRestartEvent):
+    async def on_api_restart(self, event: Demands.ApiRestartEvent) -> None:
         """Restart the API."""
         self.logger.info("Restarting API")
         # the api is running as a systemd service, so we can just restart the service

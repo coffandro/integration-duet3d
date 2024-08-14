@@ -1,5 +1,11 @@
 """GCode parsing and writing utilities."""
 import re
+from typing import List, TextIO
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import attr
 
@@ -12,7 +18,7 @@ class GCodeCommand():
     comment = attr.ib(factory=list)
     parameters = attr.ib(factory=list)
 
-    def compress(self):
+    def compress(self) -> str:
         """Compress the GCodeCommand into a single line without comments."""
         gcode_line = '{0} {1}'.format(
             self.code,
@@ -23,7 +29,7 @@ class GCodeCommand():
 
         return gcode_line
 
-    def write(self, fp):
+    def write(self, fp: TextIO) -> None:
         """Write the GCodeCommand to a file-like object."""
         gcode_line = '{0} {1}'.format(
             self.code,
@@ -62,7 +68,7 @@ class GCodeBlock():
     comment = attr.ib(factory=list)
     code = attr.ib(factory=list)
 
-    def write(self, fp):
+    def write(self, fp: TextIO) -> None:
         """Write the GCodeBlock to a file-like object."""
         if len(self.comment) > 0:
             fp.write('; ')
@@ -74,7 +80,7 @@ class GCodeBlock():
 
         fp.write('\n')
 
-    def parse(self, lines):
+    def parse(self, lines: List) -> Self:
         """Parse a list of lines into a GCodeBlock."""
         current_comment = []
 
