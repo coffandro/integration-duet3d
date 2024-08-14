@@ -93,7 +93,7 @@ async def test_rr_upload_stream(reprapfirmware, mock_session):
     assert response == b'Response'
     mock_session.post.assert_called_once()
     assert mock_session.post.call_args[1]['url'] == 'http://10.42.0.2/rr_upload'
-    assert mock_session.post.call_args[1]['params'] == {'name': 'test.txt', 'crc32': '0'}
+    assert mock_session.post.call_args[1]['params'] == {'name': 'test.txt', 'crc32': 'be0e1d1b'}
 
 
 @pytest.mark.asyncio

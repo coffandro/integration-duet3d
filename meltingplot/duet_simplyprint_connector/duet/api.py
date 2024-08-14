@@ -241,9 +241,10 @@ class RepRapFirmware():
             params['time'] = last_modified.isoformat(timespec='seconds')
 
         checksum = 0
-        for chunk in file:
+        while chunk := file.read(8096):
             checksum = crc32(chunk, checksum) & 0xffffffff
-            asyncio.sleep(0)
+            if progress:
+                progress(0)
 
         checksum = checksum & 0xffffffff
         filesize = file.tell()
@@ -252,8 +253,7 @@ class RepRapFirmware():
         params['crc32'] = '{0:x}'.format(checksum)
 
         async def file_chunk():
-            while True:
-                chunk = file.read(8096)
+            while chunk := file.read(8096):
                 if progress:
                     progress(
                         max(0.0, min(100.0,
@@ -263,11 +263,16 @@ class RepRapFirmware():
                     break
                 yield chunk
 
+        timeout = aiohttp.ClientTimeout(
+            total=60 * 30,  # 30 minutes
+        )
+
         response = b''
         async with self.session.post(
             url=url,
             data=file_chunk(),
             params=params,
+            timeout=timeout,
         ) as r:
             response = await r.read()
 

@@ -168,29 +168,60 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             ):
                 f.write(chunk)
 
-            # TODO: run in different thread
             f.seek(0)
             prefix = '0:/gcodes/'
-            await self.duet.rr_upload_stream(
-                filepath='{!s}{!s}'.format(prefix, event.file_name),
-                file=f,
-                progress=self._file_progress,
-            )
+            retries = 3
+            while retries > 0:
+                try:
+                    await self.duet.rr_upload_stream(
+                        filepath='{!s}{!s}'.format(prefix, event.file_name),
+                        file=f,
+                        progress=self._file_progress,
+                    )
+                    break
+                except aiohttp.ClientResponseError as e:
+                    if e.status == 401:
+                        await self.duet.reconnect()
+                finally:
+                    retries -= 1
 
         self.printer.file_progress.percent = 100.0
         self.printer.file_progress.state = FileProgressState.READY
         if event.auto_start:
             self.printer.job_info.filename = event.file_name
+            timeout = time.time() + 60 * 5  # 5 minutes
+            while timeout > time.time():
+                response = await self.duet.rr_fileinfo(
+                    name="0:/gcodes/{!s}".format(event.file_name),
+                )
+                if response['err'] == 0:
+                    break
+                # Ensure we send events to SimplyPrint
+                asyncio.run_coroutine_threadsafe(
+                    self.consume_state(),
+                    self.event_loop,
+                )
+                await asyncio.sleep(1)
+
             asyncio.run_coroutine_threadsafe(
                 self.on_start_print(event),
                 self.event_loop,
+            )
+
+    async def _download_and_upload_file_task(self, event: Demands.FileEvent):
+        try:
+            await self._download_and_upload_file(event)
+        except Exception as e:
+            self.logger.exception(
+                "An exception occurred while downloading and uploading a file",
+                exc_info=e,
             )
 
     @Demands.FileEvent.on
     async def on_file(self, event: Demands.FileEvent):
         """Download a file from Simplyprint.io to the printer."""
         file_task = asyncio.create_task(
-            self._download_and_upload_file(event=event),
+            self._download_and_upload_file_task(event=event),
         )
         self._background_task.add(file_task)
         file_task.add_done_callback(self._background_task.discard)
