@@ -408,6 +408,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             return
 
         try:
+            # TODO: Find another way to calculate the progress
             total_filament_required = sum(
                 job_status['result']['file']['filament'],
             )
@@ -417,7 +418,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 100.0,
             )
             self.printer.job_info.filament = round(current_filament, 0)
-        except (TypeError, KeyError):
+        except (TypeError, KeyError, ZeroDivisionError):
             self.printer.job_info.progress = 0.0
 
         try:
@@ -434,6 +435,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.started = True
         except (TypeError, KeyError):
             self.printer.job_info.filename = None
+            self.printer.job_info.started = False
 
         self.printer.job_info.layer = job_status['result'][
             'layer'] if 'layer' in job_status['result'] else 0
