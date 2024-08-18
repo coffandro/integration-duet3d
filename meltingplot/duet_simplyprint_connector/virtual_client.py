@@ -432,7 +432,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.progress = 0.0
 
         try:
-            self._update_times_left(
+            await self._update_times_left(
                 times_left=job_status['result']['timesLeft'],
             )
         except (TypeError, KeyError):
