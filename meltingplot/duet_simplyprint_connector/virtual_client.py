@@ -400,6 +400,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             or self.printer.status == PrinterStatus.RESUMING
         )
 
+    async def _update_times_left(self, times_left: dict) -> None:
+        if 'filament' in times_left:
+            self.printer.job_info.time = times_left['filament']
+        elif 'slicer' in times_left:
+            self.printer.job_info.time = times_left['slicer']
+        elif 'file' in times_left:
+            self.printer.job_info.time = times_left['file']
+        else:
+            self.printer.job_info.time = 0
+
     async def _update_job_info(self) -> None:
         async with self._job_status_lock:
             job_status = self._job_status
@@ -422,8 +432,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.progress = 0.0
 
         try:
-            self.printer.job_info.time = job_status['result']['timesLeft'][
-                'filament']
+            self._update_times_left(
+                times_left=job_status['result']['timesLeft'],
+            )
         except (TypeError, KeyError):
             self.printer.job_info.time = 0
 
