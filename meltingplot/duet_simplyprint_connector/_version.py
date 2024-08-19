@@ -156,10 +156,7 @@ def versions_from_parentdir(
         root = os.path.dirname(root)  # up a level
 
     if verbose:
-        print(
-            "Tried directories %s but none started with prefix %s" %
-            (str(rootdirs), parentdir_prefix)
-        )
+        print("Tried directories %s but none started with prefix %s" % (str(rootdirs), parentdir_prefix))
     raise NotThisMethod("rootdir doesn't start with parentdir_prefix")
 
 
@@ -267,12 +264,7 @@ def git_versions_from_keywords(
 
 
 @register_vcs_handler("git", "pieces_from_vcs")
-def git_pieces_from_vcs(
-    tag_prefix: str,
-    root: str,
-    verbose: bool,
-    runner: Callable = run_command
-) -> Dict[str, Any]:
+def git_pieces_from_vcs(tag_prefix: str, root: str, verbose: bool, runner: Callable = run_command) -> Dict[str, Any]:
     """Get version from 'git describe' in the root of the source tree.
 
     This only gets called if the git-archive 'subst' keywords were *not*
@@ -290,9 +282,7 @@ def git_pieces_from_vcs(
     env.pop("GIT_DIR", None)
     runner = functools.partial(runner, env=env)
 
-    _, rc = runner(
-        GITS, ["rev-parse", "--git-dir"], cwd=root, hide_stderr=not verbose
-    )
+    _, rc = runner(GITS, ["rev-parse", "--git-dir"], cwd=root, hide_stderr=not verbose)
     if rc != 0:
         if verbose:
             print("Directory %s not under git control" % root)
@@ -301,10 +291,7 @@ def git_pieces_from_vcs(
     # if there is a tag matching tag_prefix, this yields TAG-NUM-gHEX[-dirty]
     # if there isn't one, this yields HEX[-dirty] (no NUM)
     describe_out, rc = runner(
-        GITS, [
-            "describe", "--tags", "--dirty", "--always", "--long", "--match",
-            f"{tag_prefix}[[:digit:]]*"
-        ],
+        GITS, ["describe", "--tags", "--dirty", "--always", "--long", "--match", f"{tag_prefix}[[:digit:]]*"],
         cwd=root
     )
     # --long was added in git-1.5.5
@@ -321,9 +308,7 @@ def git_pieces_from_vcs(
     pieces["short"] = full_out[:7]  # maybe improved later
     pieces["error"] = None
 
-    branch_name, rc = runner(
-        GITS, ["rev-parse", "--abbrev-ref", "HEAD"], cwd=root
-    )
+    branch_name, rc = runner(GITS, ["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
     # --abbrev-ref was added in git-1.6.3
     if rc != 0 or branch_name is None:
         raise NotThisMethod("'git rev-parse --abbrev-ref' returned error")
@@ -372,9 +357,7 @@ def git_pieces_from_vcs(
         mo = re.search(r'^(.+)-(\d+)-g([0-9a-f]+)$', git_describe)
         if not mo:
             # unparsable. Maybe git-describe is misbehaving?
-            pieces["error"] = (
-                "unable to parse git-describe output: '%s'" % describe_out
-            )
+            pieces["error"] = ("unable to parse git-describe output: '%s'" % describe_out)
             return pieces
 
         # tag
@@ -383,10 +366,7 @@ def git_pieces_from_vcs(
             if verbose:
                 fmt = "tag '%s' doesn't start with prefix '%s'"
                 print(fmt % (full_tag, tag_prefix))
-            pieces["error"] = (
-                "tag '%s' doesn't start with prefix '%s'" %
-                (full_tag, tag_prefix)
-            )
+            pieces["error"] = ("tag '%s' doesn't start with prefix '%s'" % (full_tag, tag_prefix))
             return pieces
         pieces["closest-tag"] = full_tag[len(tag_prefix):]
 
@@ -403,8 +383,7 @@ def git_pieces_from_vcs(
         pieces["distance"] = len(out.split())  # total number of commits
 
     # commit date: see ISO-8601 comment in git_versions_from_keywords()
-    date = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"],
-                  cwd=root)[0].strip()
+    date = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"], cwd=root)[0].strip()
     # Use only the last line.  Previous lines may contain GPG signature
     # information.
     date = date.splitlines()[-1]
@@ -492,14 +471,10 @@ def render_pep440_pre(pieces: Dict[str, Any]) -> str:
     if pieces["closest-tag"]:
         if pieces["distance"]:
             # update the post release segment
-            tag_version, post_version = pep440_split_post(
-                pieces["closest-tag"]
-            )
+            tag_version, post_version = pep440_split_post(pieces["closest-tag"])
             rendered = tag_version
             if post_version is not None:
-                rendered += ".post%d.dev%d" % (
-                    post_version + 1, pieces["distance"]
-                )
+                rendered += ".post%d.dev%d" % (post_version + 1, pieces["distance"])
             else:
                 rendered += ".post0.dev%d" % (pieces["distance"])
         else:
@@ -682,9 +657,7 @@ def get_versions() -> Dict[str, Any]:
     verbose = cfg.verbose
 
     try:
-        return git_versions_from_keywords(
-            get_keywords(), cfg.tag_prefix, verbose
-        )
+        return git_versions_from_keywords(get_keywords(), cfg.tag_prefix, verbose)
     except NotThisMethod:
         pass
 
