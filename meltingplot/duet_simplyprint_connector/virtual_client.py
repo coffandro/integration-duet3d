@@ -277,6 +277,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def init(self) -> None:
         """Initialize the client."""
+        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
         printer_status_task = asyncio.create_task(self._printer_status_task())
         self._background_task.add(printer_status_task)
         printer_status_task.add_done_callback(self._background_task.discard)
