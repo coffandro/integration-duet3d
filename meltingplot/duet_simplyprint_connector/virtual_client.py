@@ -82,6 +82,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
         self._duet_connected = False
+        self._printer_timeout = 0
         self._printer_status = None
         self._printer_status_lock = asyncio.Lock()
         self._job_status = None
@@ -375,19 +376,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(1)
 
-    async def _update_printer_status(self) -> None:
-        async with self._printer_status_lock:
-            printer_status = self._printer_status
-
-        if printer_status is None:
-            return
-
-        try:
-            await self._update_temperatures(printer_status)
-        except KeyError:
-            self.printer.bed_temperature.actual = 0.0
-            self.printer.tool_temperatures[0].actual = 0.0
-
+    async def _update_printer_state(self, printer_status: dict) -> None:
         try:
             printer_state = printer_status['result']['state']['status']
         except KeyError:
@@ -400,11 +389,30 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         else:
             self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
 
+    async def _update_printer_status(self) -> None:
+        async with self._printer_status_lock:
+            printer_status = self._printer_status
+
+        if printer_status is None:
+            if time.time() > self._printer_timeout:
+                self.printer.status = PrinterStatus.OFFLINE
+            return
+
+        try:
+            await self._update_temperatures(printer_status)
+        except KeyError:
+            self.printer.bed_temperature.actual = 0.0
+            self.printer.tool_temperatures[0].actual = 0.0
+
+        await self._update_printer_state(printer_status)
+
         if self.printer.status == PrinterStatus.CANCELLING and self.printer.job_info.started:
             self.printer.job_info.cancelled = True
         elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
             if self.printer.job_info.started:
                 self.printer.job_info.finished = True
+
+        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
     async def _is_printing(self) -> bool:
         printing = (
@@ -567,6 +575,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         event: Demands.WebcamSnapshotEvent,
     ) -> None:
         """Take a snapshot from the webcam."""
+        # From Javad
+        # There is an edge case for the `WebcamSnapshotEvent` where and `id` and optional `endpoint` can be provided,
+        # in which case a request to a HTTP endpoint can be sent, the library implements
+        # `SimplyPrintApi.post_snapshot` you can call if you want to implement job state images.
+
         self._webcam_timeout = time.time() + 60
         if self._webcam_task_handle is None:
             self._webcam_task_handle = asyncio.create_task(self._webcam_task())
