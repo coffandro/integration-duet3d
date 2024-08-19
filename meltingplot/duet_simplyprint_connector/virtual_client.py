@@ -39,6 +39,23 @@ duet_state_simplyprint_status_mapping = {
     'idle': PrinterStatus.OPERATIONAL,
 }
 
+duet_state_simplyprint_status_while_printing_mapping = {
+    'disconnected': PrinterStatus.OFFLINE,
+    'starting': PrinterStatus.NOT_READY,
+    'updating': PrinterStatus.NOT_READY,
+    'off': PrinterStatus.OFFLINE,
+    'halted': PrinterStatus.ERROR,
+    'pausing': PrinterStatus.PAUSING,
+    'paused': PrinterStatus.PAUSED,
+    'resuming': PrinterStatus.RESUMING,
+    'cancelling': PrinterStatus.CANCELLING,
+    'processing': PrinterStatus.PRINTING,
+    'simulating': PrinterStatus.NOT_READY,
+    'busy': PrinterStatus.PRINTING,
+    'changingTool': PrinterStatus.PRINTING,
+    'idle': PrinterStatus.OPERATIONAL,
+}
+
 
 @dataclass
 class VirtualConfig(PrinterConfig):
@@ -82,7 +99,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
-        """Connect to the printer."""
+        """Connect to Simplyprint.io."""
         self.logger.info('Connected to Simplyprint.io')
 
     @Events.PrinterSettingsEvent.on
@@ -154,9 +171,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M155 # not supported by reprapfirmware
 
     def _file_progress(self, progress: float) -> None:
-        self.printer.file_progress.percent = 50 + (
-            max(0, min(50, progress / 2)),
-        )
+        self.printer.file_progress.percent = 50 + (max(0, min(50, progress / 2)))
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
@@ -199,9 +214,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.filename = event.file_name
             timeout = time.time() + 60 * 5  # 5 minutes
             while timeout > time.time():
-                response = await self.duet.rr_fileinfo(
-                    name="0:/gcodes/{!s}".format(event.file_name),
-                )
+                response = await self.duet.rr_fileinfo(name="0:/gcodes/{!s}".format(event.file_name))
                 if response['err'] == 0:
                     break
                 # Ensure we send events to SimplyPrint
@@ -263,8 +276,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def init(self) -> None:
         """Initialize the client."""
-        self.printer.status = PrinterStatus.OFFLINE
-
         printer_status_task = asyncio.create_task(self._printer_status_task())
         self._background_task.add(printer_status_task)
         printer_status_task.add_done_callback(self._background_task.discard)
@@ -273,8 +284,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
-        except (asyncio.TimeoutError, aiohttp.ClientError):
+        except asyncio.TimeoutError:
             self.printer.status = PrinterStatus.OFFLINE
+        except aiohttp.ClientError as e:
+            self.logger.debug(
+                "Failed to connect to Duet with error: {!s}".format(e),
+            )
 
         try:
             board = await self.duet.rr_model(key='boards[0]')
@@ -289,24 +304,53 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._duet_connected = True
 
     async def _update_temperatures(self, printer_status: dict) -> None:
-        self.printer.bed_temperature.actual = printer_status['result']['heat'][
-            'heaters'][0]['current']
+        self.printer.bed_temperature.actual = printer_status['result']['heat']['heaters'][0]['current']
         if printer_status['result']['heat']['heaters'][0]['state'] != 'off':
-            self.printer.bed_temperature.target = printer_status['result'][
-                'heat']['heaters'][0]['active']
+            self.printer.bed_temperature.target = printer_status['result']['heat']['heaters'][0]['active']
         else:
             self.printer.bed_temperature.target = 0.0
 
-        self.printer.tool_temperatures[0].actual = printer_status['result'][
-            'heat']['heaters'][1]['current']
+        self.printer.tool_temperatures[0].actual = printer_status['result']['heat']['heaters'][1]['current']
 
         if printer_status['result']['heat']['heaters'][1]['state'] != 'off':
-            self.printer.tool_temperatures[0].target = printer_status[
-                'result']['heat']['heaters'][1]['active']
+            self.printer.tool_temperatures[0].target = printer_status['result']['heat']['heaters'][1]['active']
         else:
             self.printer.tool_temperatures[0].target = 0.0
 
         self.printer.ambient_temperature.ambient = 20
+
+    async def _fetch_printer_status(self) -> dict:
+        try:
+            printer_status = await self.duet.rr_model(
+                key='',
+                frequently=True,
+            )
+        except TimeoutError:
+            printer_status = None
+        except Exception:
+            self.logger.exception(
+                "An exception occurred while updating the printer status",
+            )
+            # use old printer status if new one is not available
+            printer_status = self._printer_status
+        return printer_status
+
+    async def _fetch_job_status(self) -> dict:
+        try:
+            job_status = await self.duet.rr_model(
+                key='job',
+                frequently=False,
+                depth=5,
+            )
+        except TimeoutError:
+            job_status = None
+        except Exception:
+            self.logger.exception(
+                "An exception occurred while updating the job info",
+            )
+            # use old job status if new one is not available
+            job_status = self._job_status
+        return job_status
 
     async def _printer_status_task(self) -> None:
         while not self._is_stopped:
@@ -317,32 +361,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            try:
-                printer_status = await self.duet.rr_model(
-                    key='',
-                    frequently=True,
-                )
-            except Exception:
-                self.logger.exception(
-                    "An exception occurred while updating the printer status",
-                )
-                printer_status = None
+            printer_status = await self._fetch_printer_status()
+
             async with self._printer_status_lock:
                 self._printer_status = printer_status
 
             await asyncio.sleep(1)
 
-            try:
-                job_status = await self.duet.rr_model(
-                    key='job',
-                    frequently=False,
-                    depth=5,
-                )
-            except Exception:
-                self.logger.exception(
-                    "An exception occurred while updating the job info",
-                )
-                job_status = None
+            job_status = await self._fetch_job_status()
 
             async with self._job_status_lock:
                 self._job_status = job_status
@@ -354,7 +380,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             printer_status = self._printer_status
 
         if printer_status is None:
-            self.printer.status = PrinterStatus.OFFLINE
             return
 
         try:
@@ -368,37 +393,36 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except KeyError:
             printer_state = 'disconnected'
 
-        # disconnected: Not connected to the Duet
-        # starting: Processing config.g
-        # updating: The firmware is being updated
-        # off: The machine is turned off (i.e. the input voltage is too low for operation)
-        # halted: The machine has encountered an emergency stop and is ready to reset
-        # pausing: The machine is about to pause a file job
-        # paused: The machine has paused a file job
-        # resuming: The machine is about to resume a paused file job
-        # cancelling: Job file is being cancelled
-        # processing: The machine is processing a file job
-        # simulating: The machine is simulating a file job to determine its processing time
-        # busy: The machine is busy doing something (e.g. moving)
-        # changingTool: The machine is changing the current tool
-        # idle: The machine is on but has nothing to do
+        # SP is sensitive to printer status while printing
+        # so we need to differentiate between printer status while printing and not printing
+        if await self._is_printing():
+            self.printer.status = duet_state_simplyprint_status_while_printing_mapping[printer_state]
+        else:
+            self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
 
-        self.printer.status = duet_state_simplyprint_status_mapping[
-            printer_state]
         if self.printer.status == PrinterStatus.CANCELLING and self.printer.job_info.started:
             self.printer.job_info.cancelled = True
         elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
             if self.printer.job_info.started:
                 self.printer.job_info.finished = True
-            self.printer.job_info.started = False
 
-    def _is_printing(self) -> bool:
-        return (
-            self.printer.status == PrinterStatus.PRINTING
-            or self.printer.status == PrinterStatus.PAUSED
-            or self.printer.status == PrinterStatus.PAUSING
-            or self.printer.status == PrinterStatus.RESUMING
+    async def _is_printing(self) -> bool:
+        printing = (
+            self.printer.status == PrinterStatus.PRINTING or self.printer.status == PrinterStatus.PAUSED
+            or self.printer.status == PrinterStatus.PAUSING or self.printer.status == PrinterStatus.RESUMING
         )
+
+        async with self._job_status_lock:
+            job_status = self._job_status
+
+        if (job_status is None or 'result' not in job_status or 'file' not in job_status['result']):
+            return printing
+
+        job_status = job_status['result']['file']
+
+        printing = printing or ('filename' in job_status and job_status['filename'] is not None)
+
+        return printing
 
     async def _update_times_left(self, times_left: dict) -> None:
         if 'filament' in times_left:
@@ -417,39 +441,41 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         if job_status is None:
             return
 
+        job_status = job_status['result']
+
         try:
             # TODO: Find another way to calculate the progress
             total_filament_required = sum(
-                job_status['result']['file']['filament'],
+                job_status['file']['filament'],
             )
-            current_filament = float(job_status['result']['rawExtrusion'])
+            current_filament = float(job_status['rawExtrusion'])
             self.printer.job_info.progress = min(
                 current_filament * 100.0 / total_filament_required,
                 100.0,
             )
-            self.printer.job_info.filament = round(current_filament, 0)
+            self.printer.job_info.filament = round(current_filament, None)
         except (TypeError, KeyError, ZeroDivisionError):
             self.printer.job_info.progress = 0.0
 
         try:
-            await self._update_times_left(
-                times_left=job_status['result']['timesLeft'],
-            )
+            await self._update_times_left(times_left=job_status['timesLeft'])
         except (TypeError, KeyError):
             self.printer.job_info.time = 0
 
         try:
-            filepath = job_status['result']['file']['fileName']
+            filepath = job_status['file']['fileName']
             self.printer.job_info.filename = pathlib.PurePath(
                 filepath,
             ).name
-            self.printer.job_info.started = True
+            if ('duration' in job_status and job_status['duration'] is not None and job_status['duration'] < 10):
+                # only set the printjob as startet if the duration is less than 10 seconds
+                self.printer.job_info.started = True
         except (TypeError, KeyError):
-            self.printer.job_info.filename = None
-            self.printer.job_info.started = False
+            # SP is maybe keeping track of print jobs via the file name
+            # self.printer.job_info.filename = None
+            pass
 
-        self.printer.job_info.layer = job_status['result'][
-            'layer'] if 'layer' in job_status['result'] else 0
+        self.printer.job_info.layer = job_status['layer'] if 'layer' in job_status else 0
 
     async def tick(self) -> None:
         """Update the client state."""
@@ -464,7 +490,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 ):
                     await self._send_webcam_snapshot()
 
-                if self._is_printing():
+                if await self._is_printing():
                     await self._update_job_info()
         except Exception as e:
             self.logger.exception(
@@ -482,9 +508,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.WebcamTestEvent.on
     async def on_webcam_test(self, event: Demands.WebcamTestEvent) -> None:
         """Test the webcam."""
-        self.printer.webcam_info.connected = (
-            True if self.config.webcam_uri is not None else False
-        )
+        self.printer.webcam_info.connected = (True if self.config.webcam_uri is not None else False)
 
     async def _send_webcam_snapshot(self) -> None:
         async with self._webcam_image_lock:
@@ -501,9 +525,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def _fetch_webcam_image(self) -> bytes:
         headers = {"Accept": "image/jpeg"}
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             async with session.get(
                 url=self.config.webcam_uri,
                 headers=headers,

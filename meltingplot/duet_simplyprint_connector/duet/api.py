@@ -32,8 +32,7 @@ def reauthenticate(retries=3):
                     status['retries'] -= 1
                     if status_code == 401:
                         args[0].logger.error(
-                            'Unauthorized  while requesting {!s} - retry'.
-                            format(e.request_info),
+                            'Unauthorized  while requesting {!s} - retry'.format(e.request_info),
                         )
                         await asyncio.sleep(5**(retries - status['retries']))
                         response = await args[0].reconnect()
@@ -46,9 +45,7 @@ def reauthenticate(retries=3):
                         args[0].logger.error('Duet busy - retry')
                         await asyncio.sleep(60)
                     else:
-                        raise asyncio.TimeoutError(
-                            'Wrong response from Server.',
-                        )
+                        raise e
             raise asyncio.TimeoutError(
                 'Retried {} times to reauthenticate.'.format(retries),
             )
