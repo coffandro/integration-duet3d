@@ -206,6 +206,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 except aiohttp.ClientResponseError as e:
                     if e.status == 401:
                         await self.duet.reconnect()
+                    else:
+                        # Ensure the exception is not supressed
+                        raise e
                 finally:
                     retries -= 1
 
