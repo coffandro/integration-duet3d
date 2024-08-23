@@ -197,11 +197,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             retries = 3
             while retries > 0:
                 try:
-                    await self.duet.rr_upload_stream(
+                    response = await self.duet.rr_upload_stream(
                         filepath='{!s}{!s}'.format(prefix, event.file_name),
                         file=f,
                         progress=self._file_progress,
                     )
+                    if response['err'] != 0:
+                        self.printer.file_progress.state = FileProgressState.ERROR
+                        return
                     break
                 except aiohttp.ClientResponseError as e:
                     if e.status == 401:
