@@ -200,7 +200,7 @@ class RepRapFirmware():
         filepath: str,
         content: bytes,
         last_modified: Optional[datetime.datetime] = None,
-    ) -> bytes:
+    ) -> object:
         """rr_upload Upload File to Duet."""
         url = 'http://{0}/rr_upload'.format(self.address)
 
@@ -221,7 +221,7 @@ class RepRapFirmware():
 
         response = b''
         async with self.session.post(url, data=content, params=params) as r:
-            response = await r.read()
+            response = await r.json()
         return response
 
     async def rr_upload_stream(
@@ -230,7 +230,7 @@ class RepRapFirmware():
         file: BinaryIO,
         last_modified: Optional[datetime.datetime] = None,
         progress: Optional[Callable] = None,
-    ) -> bytes:
+    ) -> object:
         """rr_upload_stream Upload File to Duet."""
         url = 'http://{0}/rr_upload'.format(self.address)
 
@@ -275,7 +275,7 @@ class RepRapFirmware():
             params=params,
             timeout=timeout,
         ) as r:
-            response = await r.read()
+            response = await r.json()
 
         return response
 

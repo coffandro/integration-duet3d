@@ -12,6 +12,7 @@ def mock_session():
     session = AsyncMock(aiohttp.ClientSession)
     session.get.return_value.__aenter__.return_value.json = AsyncMock(return_value={'err': 0})
     session.post.return_value.__aenter__.return_value.read = AsyncMock(return_value=b'Response')
+    session.post.return_value.__aenter__.return_value.json = AsyncMock(return_value={'err': 0})
     session.get.return_value.__aenter__.return_value.text = AsyncMock(return_value='Response')
     return session
 
@@ -79,7 +80,7 @@ async def test_rr_download(reprapfirmware, mock_session):
 async def test_rr_upload(reprapfirmware, mock_session):
     content = b'Test Content'
     response = await reprapfirmware.rr_upload('test.txt', content)
-    assert response == b'Response'
+    assert response == {'err': 0}
     mock_session.post.assert_called_once_with('http://10.42.0.2/rr_upload', data=content, params={'name': 'test.txt', 'crc32': '80788539'})
 
 
@@ -90,7 +91,7 @@ async def test_rr_upload_stream(reprapfirmware, mock_session):
     file.read.side_effect = [b'chunk1', b'chunk2', b'']
     mock_session.reset_mock()
     response = await reprapfirmware.rr_upload_stream('test.txt', file)
-    assert response == b'Response'
+    assert response == {'err': 0}
     mock_session.post.assert_called_once()
     assert mock_session.post.call_args[1]['url'] == 'http://10.42.0.2/rr_upload'
     assert mock_session.post.call_args[1]['params'] == {'name': 'test.txt', 'crc32': 'be0e1d1b'}
