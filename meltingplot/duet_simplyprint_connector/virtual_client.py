@@ -172,7 +172,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M155 # not supported by reprapfirmware
 
     def _file_progress(self, progress: float) -> None:
-        self.printer.file_progress.percent = 50 + (max(0, min(50, progress / 2)))
+        self.printer.file_progress.percent = round(50 + (max(0, min(50, progress / 2))), 0)
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
@@ -414,11 +414,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         old_printer_state = self.printer.status
         await self._map_duet_state_to_printer_status(printer_status)
 
-        if self.printer.status == PrinterStatus.CANCELLING and self.printer.job_info.started:
+        if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
             self.printer.job_info.cancelled = True
         elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
             if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
+                # setting 'finished' will clear 'started'
                 self.printer.job_info.finished = True
+                self.printer.job_info.progress = 100.0
 
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
