@@ -217,7 +217,7 @@ class RepRapFirmware():
             content = content.encode('utf-8')
             checksum = crc32(content) & 0xffffffff
 
-        params['crc32'] = '{0:x}'.format(checksum)
+        params['crc32'] = '{0:08x}'.format(checksum)
 
         response = b''
         async with self.session.post(url, data=content, params=params) as r:
@@ -251,7 +251,7 @@ class RepRapFirmware():
         filesize = file.tell()
         file.seek(0)
 
-        params['crc32'] = '{0:x}'.format(checksum)
+        params['crc32'] = '{0:08x}'.format(checksum)
 
         async def file_chunk():
             while chunk := file.read(8096):
