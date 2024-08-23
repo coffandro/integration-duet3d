@@ -383,7 +383,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(1)
 
-    async def _update_printer_state(self, printer_status: dict) -> None:
+    async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:
         try:
             printer_state = printer_status['result']['state']['status']
         except KeyError:
@@ -411,12 +411,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.bed_temperature.actual = 0.0
             self.printer.tool_temperatures[0].actual = 0.0
 
-        await self._update_printer_state(printer_status)
+        old_printer_state = self.printer.status
+        await self._map_duet_state_to_printer_status(printer_status)
 
         if self.printer.status == PrinterStatus.CANCELLING and self.printer.job_info.started:
             self.printer.job_info.cancelled = True
         elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
-            if self.printer.job_info.started:
+            if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
                 self.printer.job_info.finished = True
 
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
