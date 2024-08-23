@@ -78,10 +78,10 @@ async def test_rr_download(reprapfirmware, mock_session):
 
 @pytest.mark.asyncio
 async def test_rr_upload(reprapfirmware, mock_session):
-    content = b'Test Content'
+    content = b'testtttttt'
     response = await reprapfirmware.rr_upload('test.txt', content)
     assert response == {'err': 0}
-    mock_session.post.assert_called_once_with('http://10.42.0.2/rr_upload', data=content, params={'name': 'test.txt', 'crc32': '80788539'})
+    mock_session.post.assert_called_once_with('http://10.42.0.2/rr_upload', data=content, params={'name': 'test.txt', 'crc32': '075b1c7c'})
 
 
 @pytest.mark.asyncio
