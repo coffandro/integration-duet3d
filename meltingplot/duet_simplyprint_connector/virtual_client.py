@@ -92,7 +92,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._webcam_task_handle = None
         self._webcam_image = None
         self._webcam_image_lock = asyncio.Lock()
-        self._requested_webcam_snapshots = 0
+        self._requested_webcam_snapshots = 1
         self._requested_webcam_snapshots_lock = asyncio.Lock()
 
         self._background_task = set()
