@@ -350,7 +350,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 frequently=False,
                 depth=5,
             )
-        except TimeoutError:
+        except (aiohttp.ClientConnectorError, TimeoutError):
             job_status = None
         except Exception:
             self.logger.exception(
