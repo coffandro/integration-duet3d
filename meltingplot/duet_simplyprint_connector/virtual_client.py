@@ -333,7 +333,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 key='',
                 frequently=True,
             )
-        except TimeoutError:
+        except (aiohttp.ClientConnectorError, TimeoutError):
             printer_status = None
         except Exception:
             self.logger.exception(
@@ -386,7 +386,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:
         try:
             printer_state = printer_status['result']['state']['status']
-        except KeyError:
+        except (KeyError, TypeError):
             printer_state = 'disconnected'
 
         # SP is sensitive to printer status while printing
