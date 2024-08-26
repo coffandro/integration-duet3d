@@ -25,13 +25,13 @@ Supported features:
 
 Missing features:
 
-- GCode Macros / Scripts
 - Device healts update
 - Bed leveling
 - Filament Sensor
 - PSU Control
-- GCode terminal
-- Receive messages from Printer in Simplyprint.io
+- GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
+- GCode terminal [not yet implemented by Simplyprint.io for Duet]
+- Receive messages from Printer in Simplyprint.io [not yet implemented by Simplyprint.io for Duet]
 
 
 ------------
