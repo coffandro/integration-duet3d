@@ -292,7 +292,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
-        except asyncio.TimeoutError:
+        except (aiohttp.ClientConnectionError, TimeoutError):
             self.printer.status = PrinterStatus.OFFLINE
         except aiohttp.ClientError as e:
             self.logger.debug(
@@ -333,7 +333,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 key='',
                 frequently=True,
             )
-        except (aiohttp.ClientConnectorError, TimeoutError):
+        except (aiohttp.ClientConnectionError, TimeoutError):
             printer_status = None
         except Exception:
             self.logger.exception(
@@ -350,7 +350,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 frequently=False,
                 depth=5,
             )
-        except (aiohttp.ClientConnectorError, TimeoutError):
+        except (aiohttp.ClientConnectionError, TimeoutError):
             job_status = None
         except Exception:
             self.logger.exception(
@@ -403,6 +403,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         if printer_status is None:
             if time.time() > self._printer_timeout:
                 self.printer.status = PrinterStatus.OFFLINE
+                self._duet_connected = False
             return
 
         try:

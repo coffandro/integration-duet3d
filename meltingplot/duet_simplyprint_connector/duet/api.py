@@ -23,7 +23,7 @@ def reauthenticate(retries=3):
             while status['retries']:
                 try:
                     return await f(*args, **kwargs)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     args[0].logger.error('TimeoutError - retry')
                     status['retries'] -= 1
                     await asyncio.sleep(5**(retries - status['retries']))
@@ -46,7 +46,7 @@ def reauthenticate(retries=3):
                         await asyncio.sleep(60)
                     else:
                         raise e
-            raise asyncio.TimeoutError(
+            raise TimeoutError(
                 'Retried {} times to reauthenticate.'.format(retries),
             )
 
