@@ -122,21 +122,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.logger.debug("Gcode: {!r}".format(gcode))
 
         allowed_commands = [
-            'M112',
+            'M17',
+            'M18',
             'M104',
-            'M140',
             'M106',
             'M107',
-            'M221',
-            'M220',
-            'G91',
-            'G1',
-            'G90',
-            'G28',
-            'M18',
-            'M17',
-            'M190',
             'M109',
+            'M112',
+            'M140',
+            'M190',
+            'M220',
+            'M221',
+            'G1',
+            'G28',
+            'G29',
+            'G90',
+            'G91',
         ]
 
         response = []
@@ -187,6 +188,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # G1 Z10
         # G28 Z
         # G28 XY
+        # G29
         # M18
         # M17
         # M190
