@@ -1,4 +1,4 @@
-Meltingplot Duet <-> Simplyprint connector
+Duet RepRapFirmware <-> Simplyprint.io connector
 ==========================================
 
 This package provides a connector between a Duet based 3D printer and the
