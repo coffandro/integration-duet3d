@@ -1,5 +1,5 @@
 Duet RepRapFirmware <-> Simplyprint.io connector
-==========================================
+================================================
 
 This package provides a connector between a Duet based 3D printer and the
 Simplyprint.io cloud service.
