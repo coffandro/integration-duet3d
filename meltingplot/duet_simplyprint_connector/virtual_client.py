@@ -3,6 +3,8 @@
 import asyncio
 import base64
 import pathlib
+import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -142,6 +144,26 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         for item in gcode.code:
             if item.code in allowed_commands:
                 response.append(await self.duet.rr_gcode(item.compress()))
+            elif item.code == 'M997':
+                # perform self upgrade
+                self.logger.info('Performing self upgrade')
+                try:
+                    subprocess.check_call(
+                        [
+                            sys.executable,
+                            '-m',
+                            'pip',
+                            'install',
+                            '--upgrade',
+                            'meltingplot.duet_simplyprint_connector',
+                        ],
+                    )
+                except subprocess.CalledProcessError as e:
+                    self.logger.error('Error upgrading: {0}'.format(e))
+                self.logger.info("Restarting API")
+                # the api is running as a systemd service, so we can just restart the service
+                # by terminating the process
+                raise KeyboardInterrupt()
             else:
                 response.append('{!s} G-Code blocked'.format(item.code))
 

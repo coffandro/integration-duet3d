@@ -22,6 +22,7 @@ Supported features:
 - GCode receiving
 - File downloading
 - Printer control (start, pause, resume, cancel)
+- Self Upgrading VIA G-Code M997
 
 Missing features:
 
