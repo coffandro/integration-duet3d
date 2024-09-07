@@ -2,6 +2,8 @@
 
 import asyncio
 import base64
+import csv
+import io
 import pathlib
 import subprocess
 import sys
@@ -89,6 +91,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._printer_status_lock = asyncio.Lock()
         self._job_status = None
         self._job_status_lock = asyncio.Lock()
+        self._compensation = None
+        self._compensation_lock = asyncio.Lock()
 
         self._webcam_timeout = 0
         self._webcam_task_handle = None
@@ -312,6 +316,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task.add(printer_status_task)
         printer_status_task.add_done_callback(self._background_task.discard)
 
+        job_status_task = asyncio.create_task(self._job_status_task())
+        self._background_task.add(job_status_task)
+        job_status_task.add_done_callback(self._background_task.discard)
+
+        compensation_status_task = asyncio.create_task(self._compensation_status_task())
+        self._background_task.add(compensation_status_task)
+        compensation_status_task.add_done_callback(self._background_task.discard)
+
     async def _connect_to_duet(self) -> None:
         try:
             response = await self.duet.connect()
@@ -359,6 +371,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
         except (aiohttp.ClientConnectionError, TimeoutError):
             printer_status = None
+        except KeyboardInterrupt as e:
+            raise e
         except Exception:
             self.logger.exception(
                 "An exception occurred while updating the printer status",
@@ -376,6 +390,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
         except (aiohttp.ClientConnectionError, TimeoutError):
             job_status = None
+        except KeyboardInterrupt as e:
+            raise e
         except Exception:
             self.logger.exception(
                 "An exception occurred while updating the job info",
@@ -384,11 +400,29 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             job_status = self._job_status
         return job_status
 
+    async def _fetch_rr_model(self, key, **kwargs) -> dict:
+        try:
+            response = await self.duet.rr_model(
+                key=key,
+                **kwargs,
+            )
+        except (aiohttp.ClientConnectionError, TimeoutError):
+            response = None
+        except KeyboardInterrupt as e:
+            raise e
+        except Exception:
+            self.logger.exception(
+                "An exception occurred while fetching rr_model with key: {!s}".fomrat(key),
+            )
+        return response
+
     async def _printer_status_task(self) -> None:
         while not self._is_stopped:
             try:
                 if not self._duet_connected:
                     await self._connect_to_duet()
+            except KeyboardInterrupt as e:
+                raise e
             except Exception:
                 await asyncio.sleep(60)
                 continue
@@ -400,12 +434,53 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(1)
 
+    async def _job_status_task(self) -> None:
+        while not self._is_stopped:
+            if not self._duet_connected:
+                await asyncio.sleep(60)
+                continue
+
             job_status = await self._fetch_job_status()
 
             async with self._job_status_lock:
                 self._job_status = job_status
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
+
+    async def _compensation_status_task(self) -> None:
+        while not self._is_stopped:
+            if not self._duet_connected:
+                await asyncio.sleep(60)
+                continue
+
+            try:
+                compensation = await self._fetch_rr_model(
+                    key='move.compensation',
+                    frequently=False,
+                    depth=4,
+                )
+            except KeyboardInterrupt as e:
+                raise e
+            except Exception:
+                compensation = None
+
+            old_compensation = self._compensation
+
+            async with self._compensation_lock:
+                self._compensation = compensation
+
+            if (
+                compensation is not None and compensation['result']['file'] is not None
+                and (old_compensation is None or old_compensation['result']['file'] != compensation['result']['file'])
+            ):
+                try:
+                    await self._send_mesh_data()
+                except Exception as e:
+                    self.logger.exception(
+                        "An exception occurred while sending mesh data",
+                        exc_info=e,
+                    )
+            await asyncio.sleep(10)
 
     async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:
         try:
@@ -657,3 +732,96 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # the api is running as a systemd service, so we can just restart the service
         # by terminating the process
         raise KeyboardInterrupt()
+
+    async def _send_mesh_data(self) -> None:
+        async with self._compensation_lock:
+            compensation = self._compensation['result']
+        self.logger.debug('Send mesh data')
+        self.logger.debug('Compensation: {!s}'.format(compensation))
+
+        # move.compensation.file
+        # if is not none - mesh is loaded
+
+        # M409 K"move.compensation.liveGrid"
+        # {
+        #     "key": "move.compensation.liveGrid",
+        #     "flags": "",
+        #     "result": {
+        #         "axes": [
+        #             "X",
+        #             "Y"
+        #         ],
+        #         "maxs": [
+        #             842.4,
+        #             379.5
+        #         ],
+        #         "mins": [
+        #             8.6,
+        #             25.5
+        #         ],
+        #         "radius": -1,
+        #         "spacings": [
+        #             49,
+        #             50.6
+        #         ]
+        #     }
+        # }
+
+        # the mesh data is stored in an csv file on the duet board
+        # we need to download the file and send it to simplyprint
+        # the format is as follows:
+        # first row contains a comment
+        # second row contains the headers for the mesh shape
+        # third row contains the data for the mesh shape
+        # consecutive rows contain the mesh data as matrix
+
+        self.logger.debug('Downloading mesh data')
+        heightmap = io.BytesIO()
+
+        async for chunk in self.duet.rr_download(filepath=compensation['file']):
+            heightmap.write(chunk)
+        heightmap.seek(0)
+        heightmap = heightmap.read().decode('utf-8')
+
+        self.logger.debug('Mesh data: {!s}'.format(heightmap))
+
+        mesh_data_csv = csv.reader(heightmap.splitlines()[3:], dialect='unix')
+
+        mesh_data = []
+
+        z_min = 100
+        z_max = 0
+
+        for row in mesh_data_csv:
+            x_line = []
+            for x in row:
+                value = float(x.strip())
+                z_min = min(z_min, value)
+                z_max = max(z_max, value)
+                x_line.append(value)
+            self.logger.debug('Mesh data row: {!s}'.format(x_line))
+            mesh_data.append(x_line)
+
+        bed = {
+            # volume.formFactor 0..1 string The form factor of the printer’s bed,
+            # valid values are “rectangular” and “circular”
+            'type': 'rectangular' if compensation['liveGrid']['radius'] == -1 else 'circular',
+            'x_min': compensation['liveGrid']['mins'][0],
+            'x_max': compensation['liveGrid']['maxs'][0],
+            'y_min': compensation['liveGrid']['mins'][1],
+            'y_max': compensation['liveGrid']['maxs'][1],
+            'z_min': z_min,
+            'z_max': z_max,
+        }
+
+        data = {
+            'mesh_min': [bed['y_min'], bed['x_min']],
+            'mesh_max': [bed['y_max'], bed['x_max']],
+            'mesh_matrix': mesh_data,
+        }
+        self.logger.debug('Mesh data: {!s}'.format(data))
+
+        # mesh data is matrix of y,x and z
+        await self.send_event(
+            ClientEvents.MeshDataEvent(data=data),
+        )
