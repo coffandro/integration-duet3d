@@ -68,6 +68,7 @@ def async_task(func):
         task = asyncio.create_task(func(*args, **kwargs))
         args[0]._background_task.add(task)
         task.add_done_callback(args[0]._background_task.discard)
+        return task
 
     return wrapper
 
@@ -337,11 +338,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
 
         try:
-            board = await self.duet.rr_model(key='boards[0]')['result']
+            board = await self.duet.rr_model(key='boards[0]')
+            board = board['result']
         except Exception as e:
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
 
-        self.logger.info('Connected to Duet Board {0}'.format(board['result']))
+        self.logger.info('Connected to Duet Board {0}'.format(board))
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
@@ -671,6 +673,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         return jpg_encoded
 
+    @async_task
     async def _webcam_task(self) -> None:
         self.logger.debug('Webcam task started')
         while time.time() < self._webcam_timeout:
@@ -683,6 +686,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await asyncio.sleep(10)
         async with self._webcam_image_lock:
             self._webcam_image = None
+        self._webcam_task_handle = None
 
     @Demands.WebcamSnapshotEvent.on
     async def on_webcam_snapshot(
@@ -697,12 +701,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self._webcam_timeout = time.time() + 60
         if self._webcam_task_handle is None:
-            self._webcam_task_handle = asyncio.create_task(self._webcam_task())
-
-            def remove_task(task):
-                self._webcam_task_handle = None
-
-            self._webcam_task_handle.add_done_callback(remove_task)
+            self._webcam_task_handle = await self._webcam_task()
 
         async with self._requested_webcam_snapshots_lock:
             self._requested_webcam_snapshots += 1
