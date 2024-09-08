@@ -61,6 +61,17 @@ duet_state_simplyprint_status_while_printing_mapping = {
 }
 
 
+def async_task(func):
+    """Run a function as a task."""
+
+    async def wrapper(*args, **kwargs):
+        task = asyncio.create_task(func(*args, **kwargs))
+        args[0]._background_task.add(task)
+        task.add_done_callback(args[0]._background_task.discard)
+
+    return wrapper
+
+
 @dataclass
 class VirtualConfig(PrinterConfig):
     """Configuration for the VirtualClient."""
@@ -312,17 +323,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def init(self) -> None:
         """Initialize the client."""
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
-        printer_status_task = asyncio.create_task(self._printer_status_task())
-        self._background_task.add(printer_status_task)
-        printer_status_task.add_done_callback(self._background_task.discard)
 
-        job_status_task = asyncio.create_task(self._job_status_task())
-        self._background_task.add(job_status_task)
-        job_status_task.add_done_callback(self._background_task.discard)
-
-        compensation_status_task = asyncio.create_task(self._compensation_status_task())
-        self._background_task.add(compensation_status_task)
-        compensation_status_task.add_done_callback(self._background_task.discard)
+        await self._printer_status_task()
+        await self._job_status_task()
+        await self._compensation_status_task()
 
     async def _connect_to_duet(self) -> None:
         try:
@@ -416,6 +420,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
         return response
 
+    @async_task
     async def _printer_status_task(self) -> None:
         while not self._is_stopped:
             try:
@@ -434,6 +439,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(1)
 
+    @async_task
     async def _job_status_task(self) -> None:
         while not self._is_stopped:
             if not self._duet_connected:
@@ -447,6 +453,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(10)
 
+    @async_task
     async def _compensation_status_task(self) -> None:
         while not self._is_stopped:
             if not self._duet_connected:
