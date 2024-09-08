@@ -283,6 +283,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.event_loop,
             )
 
+    @async_task
     async def _download_and_upload_file_task(
         self,
         event: Demands.FileEvent,
@@ -298,11 +299,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.FileEvent.on
     async def on_file(self, event: Demands.FileEvent) -> None:
         """Download a file from Simplyprint.io to the printer."""
-        file_task = asyncio.create_task(
-            self._download_and_upload_file_task(event=event),
-        )
-        self._background_task.add(file_task)
-        file_task.add_done_callback(self._background_task.discard)
+        await self._download_and_upload_file_task(event=event)
 
     @Demands.StartPrintEvent.on
     async def on_start_print(self, _) -> None:
@@ -340,28 +337,29 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
 
         try:
-            board = await self.duet.rr_model(key='boards[0]')
+            board = await self.duet.rr_model(key='boards[0]')['result']
         except Exception as e:
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
 
         self.logger.info('Connected to Duet Board {0}'.format(board['result']))
 
-        self.printer.firmware.name = board['result']['firmwareName']
-        self.printer.firmware.version = board['result']['firmwareVersion']
+        self.printer.firmware.name = board['firmwareName']
+        self.printer.firmware.version = board['firmwareVersion']
         self.set_info("RepRapFirmware", "0.0.1")
         self._duet_connected = True
 
     async def _update_temperatures(self, printer_status: dict) -> None:
-        self.printer.bed_temperature.actual = printer_status['result']['heat']['heaters'][0]['current']
-        if printer_status['result']['heat']['heaters'][0]['state'] != 'off':
-            self.printer.bed_temperature.target = printer_status['result']['heat']['heaters'][0]['active']
+        heaters = printer_status['result']['heat']['heaters']
+        self.printer.bed_temperature.actual = heaters[0]['current']
+        if heaters[0]['state'] != 'off':
+            self.printer.bed_temperature.target = heaters[0]['active']
         else:
             self.printer.bed_temperature.target = 0.0
 
-        self.printer.tool_temperatures[0].actual = printer_status['result']['heat']['heaters'][1]['current']
+        self.printer.tool_temperatures[0].actual = heaters[1]['current']
 
-        if printer_status['result']['heat']['heaters'][1]['state'] != 'off':
-            self.printer.tool_temperatures[0].target = printer_status['result']['heat']['heaters'][1]['active']
+        if heaters[1]['state'] != 'off':
+            self.printer.tool_temperatures[0].target = heaters[1]['active']
         else:
             self.printer.tool_temperatures[0].target = 0.0
 
@@ -743,7 +741,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _send_mesh_data(self) -> None:
         async with self._compensation_lock:
             compensation = self._compensation['result']
-        self.logger.debug('Send mesh data')
+        self.logger.debug('Send mesh data called')
         self.logger.debug('Compensation: {!s}'.format(compensation))
 
         # move.compensation.file
@@ -782,11 +780,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # third row contains the data for the mesh shape
         # consecutive rows contain the mesh data as matrix
 
-        self.logger.debug('Downloading mesh data')
+        self.logger.debug('Downloading mesh data from duet')
         heightmap = io.BytesIO()
 
         async for chunk in self.duet.rr_download(filepath=compensation['file']):
             heightmap.write(chunk)
+
         heightmap.seek(0)
         heightmap = heightmap.read().decode('utf-8')
 
@@ -806,7 +805,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 z_min = min(z_min, value)
                 z_max = max(z_max, value)
                 x_line.append(value)
-            self.logger.debug('Mesh data row: {!s}'.format(x_line))
             mesh_data.append(x_line)
 
         bed = {
@@ -826,6 +824,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             'mesh_max': [bed['y_max'], bed['x_max']],
             'mesh_matrix': mesh_data,
         }
+
         self.logger.debug('Mesh data: {!s}'.format(data))
 
         # mesh data is matrix of y,x and z
