@@ -115,6 +115,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task = set()
         self._is_stopped = False
 
+    async def init(self) -> None:
+        """Initialize the client."""
+        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
+
+        await self._printer_status_task()
+        await self._job_status_task()
+        await self._compensation_status_task()
+
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
         """Connect to Simplyprint.io."""
@@ -319,14 +327,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Cancel the print job."""
         await self.duet.rr_gcode('M25')
         await self.duet.rr_gcode('M0')
-
-    async def init(self) -> None:
-        """Initialize the client."""
-        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
-
-        await self._printer_status_task()
-        await self._job_status_task()
-        await self._compensation_status_task()
 
     async def _connect_to_duet(self) -> None:
         try:
