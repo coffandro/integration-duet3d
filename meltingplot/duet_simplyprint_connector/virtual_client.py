@@ -5,6 +5,7 @@ import base64
 import csv
 import io
 import pathlib
+import socket
 import subprocess
 import sys
 import tempfile
@@ -16,13 +17,17 @@ import aiohttp
 
 import imageio.v3 as iio
 
+import psutil
+
 from simplyprint_ws_client.client.client import DefaultClient
 from simplyprint_ws_client.client.config import PrinterConfig
 from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
 from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterStatus
+from simplyprint_ws_client.const import VERSION as SP_VERSION
 from simplyprint_ws_client.helpers.file_download import FileDownload
 from simplyprint_ws_client.helpers.intervals import IntervalTypes
 
+from . import __version__
 from .duet.api import RepRapFirmware
 from .gcode import GCodeBlock
 
@@ -123,6 +128,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self._printer_status_task()
         await self._job_status_task()
         await self._compensation_status_task()
+        await self._connector_status_task()
+
+        self.printer.info.core_count = psutil.cpu_count(logical=False)
+        self.printer.info.total_memory = psutil.virtual_memory().total
+        self.printer.info.hostname = socket.getfqdn()
+        self.printer.info.os = "Meltingplot Duet Connector v{!s}".format(__version__)
+        self.printer.info.sp_version = SP_VERSION
+        self.printer.info.python_version = sys.version
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
@@ -347,7 +360,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
-        self.set_info("RepRapFirmware", "0.0.1")
+        self.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
+        self.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
         self._duet_connected = True
 
     async def _update_temperatures(self, printer_status: dict) -> None:
@@ -422,6 +436,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @async_task
     async def _printer_status_task(self) -> None:
+        """Task to check for printer status changes and send printer data to SimplyPrint."""
         while not self._is_stopped:
             try:
                 if not self._duet_connected:
@@ -441,6 +456,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @async_task
     async def _job_status_task(self) -> None:
+        """Task to check for job status changes and send job data to SimplyPrint."""
         while not self._is_stopped:
             if not self._duet_connected:
                 await asyncio.sleep(60)
@@ -455,6 +471,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @async_task
     async def _compensation_status_task(self) -> None:
+        """Task to check for mesh compensation changes and send mesh data to SimplyPrint."""
         while not self._is_stopped:
             if not self._duet_connected:
                 await asyncio.sleep(60)
@@ -477,7 +494,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self._compensation = compensation
 
             if (
-                compensation is not None and compensation['result']['file'] is not None
+                compensation is not None and 'file' in compensation['result']
+                and compensation['result']['file'] is not None
                 and (old_compensation is None or old_compensation['result']['file'] != compensation['result']['file'])
             ):
                 try:
@@ -488,6 +506,51 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         exc_info=e,
                     )
             await asyncio.sleep(10)
+
+    async def _update_cpu_and_memory_info(self) -> None:
+        self.printer.cpu_info.usage = psutil.cpu_percent(interval=1)
+        try:
+            self.printer.cpu_info.temperature = psutil.sensors_temperatures()['coretemp'][0].current
+        except KeyError:
+            self.printer.cpu_info.temperature = 0.0
+        self.printer.cpu_info.memory = psutil.virtual_memory().percent
+
+    async def _get_local_ip_and_mac(self) -> None:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0)
+        try:
+            # doesn't even have to be reachable
+            # we just need to know the local ip
+            # so we can send it to simplyprint
+            s.connect(("168.119.98.102", 80))
+            local_ip = s.getsockname()[0]
+        except socket.error:
+            local_ip = '127.0.0.1'
+        finally:
+            s.close()
+        self.printer.info.local_ip = local_ip
+
+        nics = psutil.net_if_addrs()
+        for iface in nics:
+            if iface == 'lo':
+                continue
+            mac = None
+            found = False
+            for addr in nics[iface]:
+                if addr.family == socket.AF_INET and addr.address == local_ip:
+                    found = True
+                if addr.family == psutil.AF_LINK:
+                    mac = addr.address
+            if found:
+                self.printer.info.mac = mac
+
+    @async_task
+    async def _connector_status_task(self) -> None:
+        """Task to gather connector infos and send data to SimplyPrint."""
+        while not self._is_stopped:
+            await self._update_cpu_and_memory_info()
+            await self._get_local_ip_and_mac()
+            await asyncio.sleep(120)
 
     async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:
         try:

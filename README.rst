@@ -23,11 +23,11 @@ Supported features:
 - File downloading
 - Printer control (start, pause, resume, cancel)
 - Self Upgrading VIA G-Code M997
+- Device healts update
+- Bed leveling
 
 Missing features:
 
-- Device healts update
-- Bed leveling
 - Filament Sensor
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]

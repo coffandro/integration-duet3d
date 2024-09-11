@@ -2,3 +2,4 @@ simplyprint-ws-client>=1.0.0rc24
 aiohttp
 attrs
 imageio[ffmpeg]
+psutil
