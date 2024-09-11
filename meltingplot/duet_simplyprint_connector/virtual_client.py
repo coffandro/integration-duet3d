@@ -5,6 +5,7 @@ import base64
 import csv
 import io
 import pathlib
+import platform
 import socket
 import subprocess
 import sys
@@ -135,7 +136,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.info.hostname = socket.getfqdn()
         self.printer.info.os = "Meltingplot Duet Connector v{!s}".format(__version__)
         self.printer.info.sp_version = SP_VERSION
-        self.printer.info.python_version = sys.version
+        self.printer.info.python_version = platform.python_version()
+        self.printer.info.machine = platform.machine()
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
@@ -495,8 +497,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             if (
                 compensation is not None and 'file' in compensation['result']
-                and compensation['result']['file'] is not None
-                and (old_compensation is None or old_compensation['result']['file'] != compensation['result']['file'])
+                and compensation['result']['file'] is not None and (
+                    old_compensation is None or 'file' not in old_compensation['result']
+                    or old_compensation['result']['file'] != compensation['result']['file']
+                )
             ):
                 try:
                     await self._send_mesh_data()
