@@ -289,7 +289,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 if response['err'] == 0:
                     break
 
-                timeleft = 10.0 - (time.time() - timeout) * 0.025
+                timeleft = 10 - ((timeout - time.time()) * 0.025)
                 self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
 
                 # Ensure we send events to SimplyPrint
