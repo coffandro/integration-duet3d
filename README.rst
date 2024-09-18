@@ -28,6 +28,7 @@ Supported features:
 
 Missing features:
 
+- Duet auto discovery with tracking based on BoardID
 - Filament Sensor
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
