@@ -20,7 +20,7 @@ import imageio.v3 as iio
 
 import psutil
 
-from simplyprint_ws_client.client.client import DefaultClient
+from simplyprint_ws_client.client.client import ClientConfigChangedEvent, DefaultClient
 from simplyprint_ws_client.client.config import PrinterConfig
 from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
 from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterStatus
@@ -85,6 +85,7 @@ class VirtualConfig(PrinterConfig):
 
     duet_uri: Optional[str] = None
     duet_password: Optional[str] = None
+    duet_unique_id: Optional[str] = None
     webcam_uri: Optional[str] = None
 
 
@@ -235,7 +236,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M155 # not supported by reprapfirmware
 
     def _file_progress(self, progress: float) -> None:
-        self.printer.file_progress.percent = round(50 + (max(0, min(50, progress / 2))), 0)
+        # contrains the progress from 50 - 90 %
+        self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
@@ -278,26 +280,34 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 finally:
                     retries -= 1
 
-        self.printer.file_progress.percent = 100.0
-        self.printer.file_progress.state = FileProgressState.READY
         if event.auto_start:
             self.printer.job_info.filename = event.file_name
-            timeout = time.time() + 60 * 5  # 5 minutes
+            timeout = time.time() + 400  # 400 seconds
+            # 10 % / 400 seconds
             while timeout > time.time():
                 response = await self.duet.rr_fileinfo(name="0:/gcodes/{!s}".format(event.file_name))
                 if response['err'] == 0:
                     break
+
+                timeleft = 10.0 - (time.time() - timeout) * 0.025
+                self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
+
                 # Ensure we send events to SimplyPrint
                 asyncio.run_coroutine_threadsafe(
                     self.consume_state(),
                     self.event_loop,
                 )
                 await asyncio.sleep(1)
+            else:
+                raise TimeoutError('Timeout while waiting for file to be ready')
 
             asyncio.run_coroutine_threadsafe(
                 self.on_start_print(event),
                 self.event_loop,
             )
+
+        self.printer.file_progress.percent = 100.0
+        self.printer.file_progress.state = FileProgressState.READY
 
     @async_task
     async def _download_and_upload_file_task(
@@ -359,6 +369,18 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
 
         self.logger.info('Connected to Duet Board {0}'.format(board))
+
+        if self.config.duet_unique_id is None:
+            self.config.duet_unique_id = board['uniqueId']
+            await self.event_bus.emit(ClientConfigChangedEvent)
+        else:
+            if self.config.duet_unique_id != board['uniqueId']:
+                self.logger.error(
+                    'Unique ID mismatch: {0} != {1}'.format(self.config.duet_unique_id, board['uniqueId']),
+                )
+                self.printer.status = PrinterStatus.OFFLINE
+                # TODO: Implement a search mechanism based on the unique ID
+                return
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
