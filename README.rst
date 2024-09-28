@@ -25,11 +25,11 @@ Supported features:
 - Self Upgrading VIA G-Code M997
 - Device healts update
 - Bed leveling
+- Filament Sensor
 
 Missing features:
 
 - Duet auto discovery with tracking based on BoardID
-- Filament Sensor
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
 - GCode terminal [not yet implemented by Simplyprint.io for Duet]
