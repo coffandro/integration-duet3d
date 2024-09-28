@@ -23,7 +23,7 @@ import psutil
 from simplyprint_ws_client.client.client import ClientConfigChangedEvent, DefaultClient
 from simplyprint_ws_client.client.config import PrinterConfig
 from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
-from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterStatus
+from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterFilamentSensorEnum, PrinterStatus
 from simplyprint_ws_client.const import VERSION as SP_VERSION
 from simplyprint_ws_client.helpers.file_download import FileDownload
 from simplyprint_ws_client.helpers.intervals import IntervalTypes
@@ -110,6 +110,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._printer_status_lock = asyncio.Lock()
         self._job_status = None
         self._job_status_lock = asyncio.Lock()
+        self._filament_monitors = None
+        self._filament_monitors_lock = asyncio.Lock()
         self._compensation = None
         self._compensation_lock = asyncio.Lock()
 
@@ -129,6 +131,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         await self._printer_status_task()
         await self._job_status_task()
+        await self._filament_monitors_task()
         await self._compensation_status_task()
         await self._connector_status_task()
 
@@ -285,7 +288,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             timeout = time.time() + 400  # 400 seconds
             # 10 % / 400 seconds
             while timeout > time.time():
-                response = await self.duet.rr_fileinfo(name="0:/gcodes/{!s}".format(event.file_name))
+                response = await self.duet.rr_fileinfo(
+                    name="0:/gcodes/{!s}".format(event.file_name),
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
                 if response['err'] == 0:
                     break
 
@@ -591,6 +597,43 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         else:
             self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
 
+    @async_task
+    async def _filament_monitors_task(self) -> None:
+        """Task to check for filament sensor changes."""
+        while not self._is_stopped:
+            try:
+                filament_monitors = await self.duet.rr_model(
+                    key='sensors.filamentMonitors',
+                    frequently=False,
+                    depth=4,
+                )
+            except KeyboardInterrupt as e:
+                raise e
+            except Exception:
+                filament_monitors = None
+
+            async with self._filament_monitors_lock:
+                self._filament_monitors = filament_monitors
+            await asyncio.sleep(10)
+
+    async def _update_filament_sensor(self, printer_status) -> None:
+        async with self._filament_monitors_lock:
+            filament_monitors = self._filament_monitors
+
+        if filament_monitors is None:
+            return
+
+        filament_monitors = filament_monitors['result']
+
+        for monitor in filament_monitors:
+            if monitor['enableMode'] > 0:
+                self.printer.settings.has_filament_sensor = True
+                if monitor['status'] == 'ok':
+                    self.printer.filament_sensor.state = PrinterFilamentSensorEnum.LOADED
+                else:
+                    self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                    break  # only one sensor is needed
+
     async def _update_printer_status(self) -> None:
         async with self._printer_status_lock:
             printer_status = self._printer_status
@@ -606,6 +649,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except KeyError:
             self.printer.bed_temperature.actual = 0.0
             self.printer.tool_temperatures[0].actual = 0.0
+
+        try:
+            await self._update_filament_sensor(printer_status)
+        except KeyError:
+            # ignore if filament sensor is not available
+            pass
 
         old_printer_state = self.printer.status
         await self._map_duet_state_to_printer_status(printer_status)

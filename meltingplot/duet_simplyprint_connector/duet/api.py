@@ -280,7 +280,7 @@ class RepRapFirmware():
         return response
 
     @reauthenticate()
-    async def rr_filelist(self, directory: str) -> object:
+    async def rr_filelist(self, directory: str, **kwargs: any) -> object:
         """
         rr_filelist List Files in Directory.
 
@@ -288,6 +288,8 @@ class RepRapFirmware():
 
         :param directory: Directory Path
         :type directory: str
+        :param kwargs: Additional Parameters
+        :type kwargs: any
         :return: File List
         :rtype: object
         """
@@ -298,13 +300,13 @@ class RepRapFirmware():
         }
 
         response = {}
-        async with self.session.get(url, params=params) as r:
+        async with self.session.get(url, params=params, **kwargs) as r:
             response = await r.json()
 
         return response
 
     @reauthenticate()
-    async def rr_fileinfo(self, name: Optional[str] = None) -> object:
+    async def rr_fileinfo(self, name: Optional[str] = None, **kwargs: any) -> object:
         """
         rr_fileinfo Get File Information.
 
@@ -312,6 +314,8 @@ class RepRapFirmware():
 
         :param name: Filepath
         :type name: str
+        :param kwargs: Additional Parameters
+        :type kwargs: any
         :return: File Information
         :rtype: object
         """
@@ -323,7 +327,7 @@ class RepRapFirmware():
             params['name'] = name
 
         response = {}
-        async with self.session.get(url, params=params) as r:
+        async with self.session.get(url, params=params, **kwargs) as r:
             response = await r.json()
 
         return response
