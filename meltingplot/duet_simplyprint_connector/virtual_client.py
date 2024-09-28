@@ -117,8 +117,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self._webcam_timeout = 0
         self._webcam_task_handle = None
-        self._webcam_image = None
-        self._webcam_image_lock = asyncio.Lock()
         self._requested_webcam_snapshots = 1
         self._requested_webcam_snapshots_lock = asyncio.Lock()
 
@@ -748,11 +746,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self._update_printer_status()
 
             if self.printer.status != PrinterStatus.OFFLINE:
-                if self._requested_webcam_snapshots > 0 and self.intervals.is_ready(
-                    IntervalTypes.WEBCAM,
-                ):
-                    await self._send_webcam_snapshot()
-
                 if await self._is_printing():
                     await self._update_job_info()
         except Exception as e:
@@ -773,12 +766,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Test the webcam."""
         self.printer.webcam_info.connected = (True if self.config.webcam_uri is not None else False)
 
-    async def _send_webcam_snapshot(self) -> None:
-        async with self._webcam_image_lock:
-            if self._webcam_image is None:
-                return
-
-            jpg_encoded = self._webcam_image
+    async def _send_webcam_snapshot(self, image) -> None:
+        jpg_encoded = image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
         await self.send_event(
             ClientEvents.StreamEvent(data={"base": base64_encoded}),
@@ -817,13 +806,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         while time.time() < self._webcam_timeout:
             try:
                 image = await self._fetch_webcam_image()
-                async with self._webcam_image_lock:
-                    self._webcam_image = image
+
+                if self._requested_webcam_snapshots > 0 and self.intervals.is_ready(
+                    IntervalTypes.WEBCAM,
+                ):
+                    await self._send_webcam_snapshot(image=image)
             except Exception as e:
                 self.logger.debug("Failed to fetch webcam image: {}".format(e))
             await asyncio.sleep(10)
-        async with self._webcam_image_lock:
-            self._webcam_image = None
         self._webcam_task_handle = None
 
     @Demands.WebcamSnapshotEvent.on
