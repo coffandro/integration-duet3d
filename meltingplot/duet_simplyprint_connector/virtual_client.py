@@ -71,7 +71,7 @@ def async_task(func):
     """Run a function as a task."""
 
     async def wrapper(*args, **kwargs):
-        task = asyncio.create_task(func(*args, **kwargs))
+        task = args[0].event_loop.create_task(func(*args, **kwargs))
         args[0]._background_task.add(task)
         task.add_done_callback(args[0]._background_task.discard)
         return task
