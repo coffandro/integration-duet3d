@@ -27,6 +27,7 @@ from simplyprint_ws_client.client.state.printer import FileProgressState, Printe
 from simplyprint_ws_client.const import VERSION as SP_VERSION
 from simplyprint_ws_client.helpers.file_download import FileDownload
 from simplyprint_ws_client.helpers.intervals import IntervalTypes
+from simplyprint_ws_client.helpers.physical_machine import PhysicalMachine
 
 from . import __version__
 from .duet.api import RepRapFirmware
@@ -139,7 +140,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.info.os = "Meltingplot Duet Connector v{!s}".format(__version__)
         self.printer.info.sp_version = SP_VERSION
         self.printer.info.python_version = platform.python_version()
-        self.printer.info.machine = platform.machine()
+        self.printer.info.machine = PhysicalMachine.machine()
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
