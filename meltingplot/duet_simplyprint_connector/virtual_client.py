@@ -108,10 +108,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._duet_connected = False
         self._printer_timeout = 0
         self._printer_status = None
-        self._printer_status_lock = asyncio.Lock()
         self._job_status = None
         self._compensation = None
-        self._compensation_lock = asyncio.Lock()
 
         self._webcam_timeout = 0
         self._webcam_task_handle = None
@@ -475,8 +473,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             printer_status = await self._fetch_printer_status()
 
-            async with self._printer_status_lock:
-                self._printer_status = printer_status
+            self._printer_status = printer_status
+            await self._update_printer_status()
 
             await asyncio.sleep(1)
 
@@ -517,8 +515,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             old_compensation = self._compensation
 
-            async with self._compensation_lock:
-                self._compensation = compensation
+            self._compensation = compensation
 
             if (
                 compensation is not None and 'file' in compensation['result']
@@ -639,8 +636,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     pass
 
     async def _update_printer_status(self) -> None:
-        async with self._printer_status_lock:
-            printer_status = self._printer_status
+        printer_status = self._printer_status
 
         if printer_status is None:
             if time.time() > self._printer_timeout:
@@ -738,8 +734,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Update the client state."""
         try:
             await self.send_ping()
-
-            await self._update_printer_status()
         except Exception as e:
             self.logger.exception(
                 "An exception occurred while ticking the client state",
@@ -858,8 +852,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         raise KeyboardInterrupt()
 
     async def _send_mesh_data(self) -> None:
-        async with self._compensation_lock:
-            compensation = self._compensation['result']
+        compensation = self._compensation['result']
         self.logger.debug('Send mesh data called')
         self.logger.debug('Compensation: {!s}'.format(compensation))
 
