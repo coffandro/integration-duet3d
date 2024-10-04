@@ -471,9 +471,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            printer_status = await self._fetch_printer_status()
-
-            self._printer_status = printer_status
+            self._printer_status = await self._fetch_printer_status()
             await self._update_printer_status()
 
             await asyncio.sleep(1)
