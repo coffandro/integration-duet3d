@@ -110,9 +110,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._printer_status = None
         self._printer_status_lock = asyncio.Lock()
         self._job_status = None
-        self._job_status_lock = asyncio.Lock()
-        self._filament_monitors = None
-        self._filament_monitors_lock = asyncio.Lock()
         self._compensation = None
         self._compensation_lock = asyncio.Lock()
 
@@ -491,12 +488,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            job_status = await self._fetch_job_status()
+            self._job_status = await self._fetch_job_status()
 
-            async with self._job_status_lock:
-                self._job_status = job_status
+            if self.printer.status != PrinterStatus.OFFLINE:
+                if await self._is_printing():
+                    await self._update_job_info()
 
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
 
     @async_task
     async def _compensation_status_task(self) -> None:
@@ -675,8 +673,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             or self.printer.status == PrinterStatus.PAUSING or self.printer.status == PrinterStatus.RESUMING
         )
 
-        async with self._job_status_lock:
-            job_status = self._job_status
+        job_status = self._job_status
 
         if (job_status is None or 'result' not in job_status or 'file' not in job_status['result']):
             return printing
@@ -698,13 +695,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.time = 0
 
     async def _update_job_info(self) -> None:
-        async with self._job_status_lock:
-            job_status = self._job_status
-
-        if job_status is None:
+        if self._job_status is None:
             return
 
-        job_status = job_status['result']
+        job_status = self._job_status['result']
 
         try:
             # TODO: Find another way to calculate the progress
@@ -746,10 +740,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self.send_ping()
 
             await self._update_printer_status()
-
-            if self.printer.status != PrinterStatus.OFFLINE:
-                if await self._is_printing():
-                    await self._update_job_info()
         except Exception as e:
             self.logger.exception(
                 "An exception occurred while ticking the client state",
