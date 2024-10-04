@@ -238,6 +238,39 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
+    async def _auto_start_file(self, event) -> None:
+        self.printer.job_info.filename = event.file_name
+        timeout = time.time() + 400  # 400 seconds
+        # 10 % / 400 seconds
+        while timeout > time.time():
+            try:
+                response = await self.duet.rr_fileinfo(
+                    name="0:/gcodes/{!s}".format(event.file_name),
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+            except TimeoutError:
+                pass
+
+            if response['err'] == 0:
+                break
+
+            timeleft = 10 - ((timeout - time.time()) * 0.025)
+            self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
+
+            # Ensure we send events to SimplyPrint
+            asyncio.run_coroutine_threadsafe(
+                self.consume_state(),
+                self.event_loop,
+            )
+            await asyncio.sleep(1)
+        else:
+            raise TimeoutError('Timeout while waiting for file to be ready')
+
+        asyncio.run_coroutine_threadsafe(
+            self.on_start_print(event),
+            self.event_loop,
+        )
+
     async def _download_and_upload_file(
         self,
         event: Demands.FileEvent,
@@ -278,33 +311,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     retries -= 1
 
         if event.auto_start:
-            self.printer.job_info.filename = event.file_name
-            timeout = time.time() + 400  # 400 seconds
-            # 10 % / 400 seconds
-            while timeout > time.time():
-                response = await self.duet.rr_fileinfo(
-                    name="0:/gcodes/{!s}".format(event.file_name),
-                    timeout=aiohttp.ClientTimeout(total=5),
-                )
-                if response['err'] == 0:
-                    break
-
-                timeleft = 10 - ((timeout - time.time()) * 0.025)
-                self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
-
-                # Ensure we send events to SimplyPrint
-                asyncio.run_coroutine_threadsafe(
-                    self.consume_state(),
-                    self.event_loop,
-                )
-                await asyncio.sleep(1)
-            else:
-                raise TimeoutError('Timeout while waiting for file to be ready')
-
-            asyncio.run_coroutine_threadsafe(
-                self.on_start_print(event),
-                self.event_loop,
-            )
+            await self._auto_start_file(event)
 
         self.printer.file_progress.percent = 100.0
         self.printer.file_progress.state = FileProgressState.READY
