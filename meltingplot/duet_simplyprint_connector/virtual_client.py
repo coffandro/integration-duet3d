@@ -611,14 +611,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             except Exception:
                 filament_monitors = None
 
-            async with self._filament_monitors_lock:
-                self._filament_monitors = filament_monitors
+            await self._update_filament_sensor(filament_monitors)
             await asyncio.sleep(10)
 
-    async def _update_filament_sensor(self, printer_status) -> None:
-        async with self._filament_monitors_lock:
-            filament_monitors = self._filament_monitors
-
+    async def _update_filament_sensor(self, filament_monitors: dict) -> None:
         if filament_monitors is None:
             return
 
@@ -632,6 +628,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 else:
                     self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
                     break  # only one sensor is needed
+
+                try:
+                    if monitor['calibrated'] is not None and self.printer.status == PrinterStatus.PAUSED:
+                        if monitor['calibrated']['percentMin'] < monitor['configured']['percentMin']:
+                            self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                            break  # only one sensor is needed
+                        if monitor['calibrated']['percentMax'] < monitor['configured']['percentMax']:
+                            self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                            break  # only one sensor is needed
+                except KeyError:
+                    pass
 
     async def _update_printer_status(self) -> None:
         async with self._printer_status_lock:
@@ -648,12 +655,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except KeyError:
             self.printer.bed_temperature.actual = 0.0
             self.printer.tool_temperatures[0].actual = 0.0
-
-        try:
-            await self._update_filament_sensor(printer_status)
-        except KeyError:
-            # ignore if filament sensor is not available
-            pass
 
         old_printer_state = self.printer.status
         await self._map_duet_state_to_printer_status(printer_status)
