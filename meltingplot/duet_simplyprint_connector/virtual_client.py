@@ -205,12 +205,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             else:
                 response.append('{!s} G-Code blocked'.format(item.code))
 
-            # await self.send_event(
-            #    ClientEvents.Ter(
-            #        data={
-            #            "response": response}
-            #    ))
-
         # M104 S1 Tool heater on
         # M140 S1 Bed heater on
         # M106 Fan on
@@ -242,14 +236,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.job_info.filename = event.file_name
         timeout = time.time() + 400  # 400 seconds
         # 10 % / 400 seconds
+
         while timeout > time.time():
             try:
                 response = await self.duet.rr_fileinfo(
                     name="0:/gcodes/{!s}".format(event.file_name),
-                    timeout=aiohttp.ClientTimeout(total=5),
+                    timeout=aiohttp.ClientTimeout(total=10),
                 )
             except TimeoutError:
-                pass
+                response = {'err': 1}  # timeout
 
             if response['err'] == 0:
                 break
@@ -271,6 +266,19 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.event_loop,
         )
 
+    @async_task
+    async def _fileprogress_task(self) -> None:
+        # make sure to send file progress every 10 seconds to avoid timeouts
+        # on clients with low bandwidth
+        # the step between 0.5% can take longer than 30 seconds which is the default timeout
+        # to avoid this we send the progress every 10 seconds
+
+        while self.printer.file_progress.state == FileProgressState.DOWNLOADING:
+            file_progress_event = self.printer.file_progress.get_field_event('percent')
+            if file_progress_event is not None:
+                self.printer.mark_event_as_dirty(file_progress_event)
+            await asyncio.sleep(10)
+
     async def _download_and_upload_file(
         self,
         event: Demands.FileEvent,
@@ -280,10 +288,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.state = FileProgressState.DOWNLOADING
         self.printer.file_progress.percent = 0.0
 
+        # start the fileprogress task to ensure we send the progress every 10 seconds
+        # to avoid timeouts on clients with low bandwidth or slow connections
+        # to duet
+        await self._fileprogress_task()
+
         with tempfile.NamedTemporaryFile(suffix='.gcode') as f:
             async for chunk in downloader.download(
                 url=event.url,
-                clamp_progress=(lambda x: int(max(0, min(50, x / 2)))),
+                clamp_progress=(lambda x: float(max(0.0, min(50.0, x / 2.0)))),
             ):
                 f.write(chunk)
 
@@ -292,6 +305,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             retries = 3
             while retries > 0:
                 try:
+                    # the upload can take a while, so we need to ensure we send the progress
+                    # e.g. for a 1 GB file it can take up to 25 minutes on a Duet2 Wifi
                     response = await self.duet.rr_upload_stream(
                         filepath='{!s}{!s}'.format(prefix, event.file_name),
                         file=f,
@@ -302,7 +317,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         return
                     break
                 except aiohttp.ClientResponseError as e:
-                    if e.status == 401:
+                    if e.status == 401 or e.status == 500:
                         await self.duet.reconnect()
                     else:
                         # Ensure the exception is not supressed
