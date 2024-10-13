@@ -80,6 +80,21 @@ def async_task(func):
     return wrapper
 
 
+def async_supress(func):
+    """Suppress exceptions in an async function."""
+
+    async def wrapper(*args, **kwargs):
+        try:
+            await func(*args, **kwargs)
+        except Exception as e:
+            args[0].logger.exception(
+                "An exception occurred while running an async function",
+                exc_info=e,
+            )
+
+    return wrapper
+
+
 @dataclass
 class VirtualConfig(PrinterConfig):
     """Configuration for the VirtualClient."""
@@ -226,7 +241,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M109
         # M155 # not supported by reprapfirmware
 
-    def _file_progress(self, progress: float) -> None:
+    def _upload_file_progress(self, progress: float) -> None:
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
         # Ensure we send events to SimplyPrint
@@ -279,7 +294,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.printer.mark_event_as_dirty(file_progress_event)
             await asyncio.sleep(10)
 
-    async def _download_and_upload_file(
+    @async_task
+    @async_supress
+    async def _download_file_from_sp_and_upload_to_duet(
         self,
         event: Demands.FileEvent,
     ) -> None:
@@ -288,9 +305,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.state = FileProgressState.DOWNLOADING
         self.printer.file_progress.percent = 0.0
 
-        # start the fileprogress task to ensure we send the progress every 10 seconds
-        # to avoid timeouts on clients with low bandwidth or slow connections
-        # to duet
+        # Initiate the file progress task to send updates every 10 seconds.
+        # This helps prevent timeouts on clients with low bandwidth or slow connections,
+        # as SimplyPrint.io has a timeout of 30 seconds.
         await self._fileprogress_task()
 
         with tempfile.NamedTemporaryFile(suffix='.gcode') as f:
@@ -305,12 +322,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             retries = 3
             while retries > 0:
                 try:
-                    # the upload can take a while, so we need to ensure we send the progress
-                    # e.g. for a 1 GB file it can take up to 25 minutes on a Duet2 Wifi
+                    # Ensure progress updates are sent during the upload process,
+                    # as uploading large files (e.g., 1 GB) can take significant time on a Duet2 Wifi.
                     response = await self.duet.rr_upload_stream(
                         filepath='{!s}{!s}'.format(prefix, event.file_name),
                         file=f,
-                        progress=self._file_progress,
+                        progress=self._upload_file_progress,
                     )
                     if response['err'] != 0:
                         self.printer.file_progress.state = FileProgressState.ERROR
@@ -331,23 +348,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.percent = 100.0
         self.printer.file_progress.state = FileProgressState.READY
 
-    @async_task
-    async def _download_and_upload_file_task(
-        self,
-        event: Demands.FileEvent,
-    ) -> None:
-        try:
-            await self._download_and_upload_file(event)
-        except Exception as e:
-            self.logger.exception(
-                "An exception occurred while downloading and uploading a file",
-                exc_info=e,
-            )
-
     @Demands.FileEvent.on
     async def on_file(self, event: Demands.FileEvent) -> None:
         """Download a file from Simplyprint.io to the printer."""
-        await self._download_and_upload_file_task(event=event)
+        await self._download_file_from_sp_and_upload_to_duet(event=event)
 
     @Demands.StartPrintEvent.on
     async def on_start_print(self, _) -> None:

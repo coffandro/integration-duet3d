@@ -45,7 +45,8 @@ async def test_download_and_upload_file_progress_calculation(virtual_client):
     with patch("aiohttp.ClientSession.get") as mock_get:
         mock_get.return_value.__aenter__.return_value.read = AsyncMock(return_value=b"file content")
 
-        await virtual_client._download_and_upload_file(event)
+        task = await virtual_client._download_file_from_sp_and_upload_to_duet(event)
+        await task
 
         assert virtual_client.printer.file_progress.percent == 100.0
         assert virtual_client.printer.file_progress.state == FileProgressState.READY
@@ -86,7 +87,8 @@ async def test_download_and_upload_file_progress_between_90_and_100(virtual_clie
         )
 
         with patch("time.time", side_effect=[0, 0, 100, 100, 350, 350, 380]):
-            await virtual_client._download_and_upload_file(event)
+            task = await virtual_client._download_file_from_sp_and_upload_to_duet(event)
+            await task
 
             assert virtual_client.printer.file_progress.percent == 100.0
             assert virtual_client.printer.file_progress.state == FileProgressState.READY
