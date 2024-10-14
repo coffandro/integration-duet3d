@@ -1,18 +1,16 @@
-Duet RepRapFirmware <-> Simplyprint.io connector
+Duet RepRapFirmware to Simplyprint.io connector
 ================================================
 
-This package provides a connector between a Duet based 3D printer and the
-Simplyprint.io cloud service.
+This package acts as a bridge between Duet-based 3D printers and the Simplyprint.io cloud service.
 
-The communication is using the Duet HTTP API.
-See https://github.com/Duet3D/RepRapFirmware/wiki/HTTP-requests for more details.
+It communicates with the printer using the Duet HTTP API.
+For more information, visit https://github.com/Duet3D/RepRapFirmware/wiki/HTTP-requests.
 
+Communication with Simplyprint.io is handled via the `simplyprint-ws-client`.
 
 ------------
 Status
 ------------
-This package is in an early stage of development.
-It is not yet feature complete and may contain bugs.
 
 Supported features:
 
@@ -63,6 +61,9 @@ Installation
 -----------------------------
 Content of DuetConnector.json
 -----------------------------
+
+The default password for the Duet is `reprap`, even if the web interface does not require a login.
+
 .. code-block:: json
 
     [
