@@ -126,6 +126,8 @@ def async_supress(func):
     async def wrapper(*args, **kwargs):
         try:
             await func(*args, **kwargs)
+        except KeyboardInterrupt as e:
+            raise e
         except Exception as e:
             args[0].logger.exception(
                 "An exception occurred while running an async function",
