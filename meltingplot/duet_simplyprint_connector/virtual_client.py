@@ -434,12 +434,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
-        except (aiohttp.ClientConnectionError, TimeoutError):
+            self._printer_status = None
+        except (aiohttp.ClientConnectionError, TimeoutError) as e:
             self.printer.status = PrinterStatus.OFFLINE
+            raise e
         except aiohttp.ClientError as e:
             self.logger.debug(
                 "Failed to connect to Duet with error: {!s}".format(e),
             )
+            raise e
 
         try:
             board = await self.duet.rr_model(key='boards[0]')
@@ -520,9 +523,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         full_status = {'result': full_status}
         return full_status
 
-    async def _fetch_printer_status(self) -> dict:
+    async def _fetch_printer_status(self, force_full_status=False) -> dict:
         try:
-            if self._printer_status is None:
+            if self._printer_status is None or force_full_status:
                 printer_status = await self._fetch_full_status()
             else:
                 partial_status = await self._fetch_partial_status(
@@ -583,6 +586,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @async_task
     async def _printer_status_task(self) -> None:
         """Task to check for printer status changes and send printer data to SimplyPrint."""
+        next_full_status = 0
         while not self._is_stopped:
             try:
                 if not self._duet_connected:
@@ -593,7 +597,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            self._printer_status = await self._fetch_printer_status()
+            fetch_full_status = False
+            if time.time() > next_full_status:
+                # Fetch full status every 15 minutes
+                fetch_full_status = True
+                next_full_status = time.time() + 60 * 15
+
+            self._printer_status = await self._fetch_printer_status(force_full_status=fetch_full_status)
             await self._update_printer_status()
 
             await asyncio.sleep(1)
