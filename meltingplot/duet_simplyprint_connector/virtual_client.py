@@ -167,11 +167,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @Demands.GcodeEvent.on
     async def on_gcode(self, event: Demands.GcodeEvent) -> None:
-        """Send GCode to the printer."""
-        self.logger.debug("Gcode: {!r}".format(event.list))
+        """
+        Receive GCode from SP and send GCode to duet.
+
+        The GCode is checked for allowed commands and then sent to the Duet.
+        """
+        self.logger.debug("Received Gcode: {!r}".format(event.list))
 
         gcode = GCodeBlock().parse(event.list)
-        self.logger.debug("Gcode: {!r}".format(gcode))
+        self.logger.debug("Parsed Gcode: {!r}".format(gcode))
 
         allowed_commands = [
             'M17',
@@ -214,12 +218,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 except subprocess.CalledProcessError as e:
                     self.logger.error('Error upgrading: {0}'.format(e))
                 self.logger.info("Restarting API")
-                # the api is running as a systemd service, so we can just restart the service
-                # by terminating the process
+                # Since the API runs as a systemd service, we can restart it by terminating the process.
                 raise KeyboardInterrupt()
             else:
                 response.append('{!s} G-Code blocked'.format(item.code))
 
+        # List of GCodes received from SP
         # M104 S1 Tool heater on
         # M140 S1 Bed heater on
         # M106 Fan on
@@ -242,12 +246,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M155 # not supported by reprapfirmware
 
     def _upload_file_progress(self, progress: float) -> None:
+        """Update the file upload progress."""
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
         # Ensure we send events to SimplyPrint
         asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
 
     async def _auto_start_file(self, event) -> None:
+        """Auto start the file after it has been uploaded."""
         self.printer.job_info.filename = event.file_name
         timeout = time.time() + 400  # 400 seconds
         # 10 % / 400 seconds
@@ -283,12 +289,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @async_task
     async def _fileprogress_task(self) -> None:
-        # make sure to send file progress every 10 seconds to avoid timeouts
-        # on clients with low bandwidth
-        # the step between 0.5% can take longer than 30 seconds which is the default timeout
-        # to avoid this we send the progress every 10 seconds
+        """
+        Periodically send file upload progress updates.
 
-        while self.printer.file_progress.state == FileProgressState.DOWNLOADING:
+        This task ensures that file upload progress is sent every 10 seconds to prevent
+        timeouts on clients with low bandwidth. The progress step between 0.5% can exceed
+        the default timeout of 30 seconds, so frequent updates are necessary.
+        """
+        while not self._is_stopped and self.printer.file_progress.state == FileProgressState.DOWNLOADING:
             file_progress_event = self.printer.file_progress.get_field_event('percent')
             if file_progress_event is not None:
                 self.printer.mark_event_as_dirty(file_progress_event)
@@ -300,6 +308,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self,
         event: Demands.FileEvent,
     ) -> None:
+        """Download a file from Simplyprint.io and upload it to the printer."""
         downloader = FileDownload(self)
 
         self.printer.file_progress.state = FileProgressState.DOWNLOADING
@@ -378,6 +387,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self.duet.rr_gcode('M0')
 
     async def _connect_to_duet(self) -> None:
+        """Connect to the Duet board."""
         try:
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
@@ -397,6 +407,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.logger.info('Connected to Duet Board {0}'.format(board))
 
         if self.config.duet_unique_id is None:
+            # Set the unique ID if it is not set
+            # and emit an event to notify the client
+            # that the configuration has changed
             self.config.duet_unique_id = board['uniqueId']
             await self.event_bus.emit(ClientConfigChangedEvent)
         else:
@@ -415,6 +428,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._duet_connected = True
 
     async def _update_temperatures(self, printer_status: dict) -> None:
+        """Update the printer temperatures."""
         heaters = printer_status['result']['heat']['heaters']
         self.printer.bed_temperature.actual = heaters[0]['current']
         if heaters[0]['state'] != 'off':
