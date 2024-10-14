@@ -7,6 +7,7 @@ from simplyprint_ws_client.client.config import ConfigManagerType
 from simplyprint_ws_client.client.logging import ClientHandler
 from simplyprint_ws_client.helpers.url_builder import SimplyPrintBackend
 
+from . import __version__
 from .virtual_client import VirtualClient, VirtualConfig
 
 
@@ -14,6 +15,7 @@ def main():
     """Initiate the connector as the main entry point."""
     client_options = ClientOptions(
         name="DuetConnector",
+        version=__version__,
         mode=ClientMode.MULTI_PRINTER,
         client_t=VirtualClient,
         config_t=VirtualConfig,
