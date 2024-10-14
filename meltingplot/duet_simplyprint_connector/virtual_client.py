@@ -506,7 +506,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             depth=1,
             frequently=False,
         )
-        self.logger.debug("Keys: {!s}".format(keys))
 
         for key in keys['result']:
             response = await self._fetch_partial_status(
@@ -514,11 +513,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 depth=99,
                 frequently=False,
             )
-            self.logger.debug("Response: {!s}".format(response))
             full_status[key] = response['result']
 
         full_status = {'result': full_status}
-        self.logger.debug("Full status: {!s}".format(full_status))
         return full_status
 
     async def _fetch_printer_status(self) -> dict:
@@ -533,7 +530,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 )
 
                 printer_status = merge(self._printer_status, partial_status)
-                self.logger.debug("Partial status: {!s}".format(partial_status))
 
         except (aiohttp.ClientConnectionError, TimeoutError):
             printer_status = None
