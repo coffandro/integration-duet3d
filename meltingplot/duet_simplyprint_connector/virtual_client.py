@@ -68,6 +68,46 @@ duet_state_simplyprint_status_while_printing_mapping = {
 }
 
 
+def merge(source, destination):
+    """Merge multiple dictionaries."""
+    # {'a': 1, 'b': {'c': 2}},
+    # {'b': {'c': 3}},
+    # {'a': 1, 'b': {'c': 3}}
+    # {'a': 1, 'b': [{'c': 2}, {'d': 4}]},
+
+    result = {}
+    dk = dict(destination)
+    for key, value in source.items():
+        if isinstance(value, dict):
+            result[key] = merge(value, destination.get(key, {}))
+        elif isinstance(value, list):
+            result[key] = value
+            dest_value = destination.get(key, [])
+            src_len = len(value)
+            dest_len = len(dest_value)
+            if dest_len == 0:
+                result[key] = value
+                continue
+            if src_len > dest_len:
+                raise ValueError(
+                    "List length mismatch in merge for key: {!s} src: {!s} dest: {!s}".format(key, value, dest_value),
+                )
+            if src_len < dest_len:
+                result[key] = dest_value
+                continue
+
+            for idx, item in enumerate(value):
+                if dest_value[idx] is None:
+                    continue
+                if isinstance(item, dict):
+                    result[key][idx] = merge(item, dest_value[idx])
+        else:
+            result[key] = destination.get(key, value)
+        dk.pop(key, None)
+    result.update(dk)
+    return result
+
+
 def async_task(func):
     """Run a function as a task."""
 
@@ -329,6 +369,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             f.seek(0)
             prefix = '0:/gcodes/'
             retries = 3
+
             while retries > 0:
                 try:
                     # Ensure progress updates are sent during the upload process,
@@ -430,27 +471,70 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _update_temperatures(self, printer_status: dict) -> None:
         """Update the printer temperatures."""
         heaters = printer_status['result']['heat']['heaters']
-        self.printer.bed_temperature.actual = heaters[0]['current']
+        # TODO make it aware of more than one bed heater
+        bed_heater_index = printer_status['result']['heat']['bedHeaters'][0]
+
+        self.printer.bed_temperature.actual = heaters[bed_heater_index]['current']
         if heaters[0]['state'] != 'off':
-            self.printer.bed_temperature.target = heaters[0]['active']
+            self.printer.bed_temperature.target = heaters[bed_heater_index]['active']
         else:
             self.printer.bed_temperature.target = 0.0
 
-        self.printer.tool_temperatures[0].actual = heaters[1]['current']
+        for tool_idx, tool_temperature in enumerate(self.printer.tool_temperatures):
+            heater_idx = printer_status['result']['tools'][tool_idx]['heaters'][0]
+            tool_temperature.actual = heaters[heater_idx]['current']
 
-        if heaters[1]['state'] != 'off':
-            self.printer.tool_temperatures[0].target = heaters[1]['active']
-        else:
-            self.printer.tool_temperatures[0].target = 0.0
+            if heaters[1]['state'] != 'off':
+                tool_temperature.target = heaters[heater_idx]['active']
+            else:
+                tool_temperature.target = 0.0
 
         self.printer.ambient_temperature.ambient = 20
 
+    async def _fetch_partial_status(self, *args, **kwargs) -> dict:
+        response = await self.duet.rr_model(
+            *args,
+            **kwargs,
+        )
+        return response
+
+    async def _fetch_full_status(self) -> dict:
+        full_status = {}
+
+        keys = await self.duet.rr_model(
+            key='',
+            depth=1,
+            frequently=False,
+        )
+        self.logger.debug("Keys: {!s}".format(keys))
+
+        for key in keys['result']:
+            response = await self._fetch_partial_status(
+                key=key,
+                depth=99,
+                frequently=False,
+            )
+            self.logger.debug("Response: {!s}".format(response))
+            full_status[key] = response['result']
+
+        full_status = {'result': full_status}
+        self.logger.debug("Full status: {!s}".format(full_status))
+        return full_status
+
     async def _fetch_printer_status(self) -> dict:
         try:
-            printer_status = await self.duet.rr_model(
-                key='',
-                frequently=True,
-            )
+            if self._printer_status is None:
+                printer_status = await self._fetch_full_status()
+            else:
+                partial_status = await self._fetch_partial_status(
+                    key='',
+                    frequently=True,
+                    depth=99,
+                )
+
+                printer_status = merge(self._printer_status, partial_status)
+                self.logger.debug("Partial status: {!s}".format(partial_status))
+
         except (aiohttp.ClientConnectionError, TimeoutError):
             printer_status = None
         except KeyboardInterrupt as e:
