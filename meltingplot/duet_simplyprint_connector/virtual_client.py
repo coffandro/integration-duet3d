@@ -547,25 +547,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         return printer_status
 
     async def _fetch_job_status(self) -> dict:
-        try:
-            job_status = await self.duet.rr_model(
-                key='job',
-                frequently=False,
-                depth=5,
-            )
-        except (aiohttp.ClientConnectionError, TimeoutError):
-            job_status = None
-        except KeyboardInterrupt as e:
-            raise e
-        except Exception:
-            self.logger.exception(
-                "An exception occurred while updating the job info",
-            )
-            # use old job status if new one is not available
-            job_status = self._job_status
+        job_status = await self._fetch_rr_model(
+            key='job',
+            return_on_exception=self._job_status,
+            frequently=False,
+            depth=5,
+        )
         return job_status
 
-    async def _fetch_rr_model(self, key, **kwargs) -> dict:
+    async def _fetch_rr_model(self, key, return_on_exception=None, **kwargs) -> dict:
         try:
             response = await self.duet.rr_model(
                 key=key,
@@ -575,10 +565,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             response = None
         except KeyboardInterrupt as e:
             raise e
-        except Exception:
-            self.logger.exception(
-                "An exception occurred while fetching rr_model with key: {!s}".fomrat(key),
+        except Exception as e:
+            msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".fomrat(
+                type(e).__name__,
+                key,
             )
+            self.logger.exception(msg)
+            response = return_on_exception
         return response
 
     @async_task
@@ -722,16 +715,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _filament_monitors_task(self) -> None:
         """Task to check for filament sensor changes."""
         while not self._is_stopped:
-            try:
-                filament_monitors = await self.duet.rr_model(
-                    key='sensors.filamentMonitors',
-                    frequently=False,
-                    depth=4,
-                )
-            except KeyboardInterrupt as e:
-                raise e
-            except Exception:
-                filament_monitors = None
+            filament_monitors = await self._fetch_rr_model(
+                key='sensors.filamentMonitors',
+                frequently=False,
+                depth=4,
+            )
 
             await self._update_filament_sensor(filament_monitors)
             await asyncio.sleep(10)
