@@ -73,7 +73,6 @@ def merge(source, destination):
     # {'a': 1, 'b': {'c': 2}},
     # {'b': {'c': 3}},
     # {'a': 1, 'b': {'c': 3}}
-    # {'a': 1, 'b': [{'c': 2}, {'d': 4}]},
 
     result = {}
     dk = dict(destination)
@@ -297,8 +296,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _auto_start_file(self, event) -> None:
         """Auto start the file after it has been uploaded."""
         self.printer.job_info.filename = event.file_name
-        timeout = time.time() + 400  # 400 seconds
-        # 10 % / 400 seconds
+        timeout = time.time() + 400  # seconds
 
         while timeout > time.time():
             try:
@@ -755,13 +753,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     break  # only one sensor is needed
 
                 try:
-                    if monitor['calibrated'] is not None and self.printer.status == PrinterStatus.PAUSED:
-                        if monitor['calibrated']['percentMin'] < monitor['configured']['percentMin']:
-                            self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
-                            break  # only one sensor is needed
-                        if monitor['calibrated']['percentMax'] < monitor['configured']['percentMax']:
-                            self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
-                            break  # only one sensor is needed
+                    if monitor['calibrated'] is None or self.printer.status != PrinterStatus.PAUSED:
+                        continue
+                    if monitor['calibrated']['percentMin'] < monitor['configured']['percentMin']:
+                        self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                        break  # only one sensor is needed
+                    if monitor['calibrated']['percentMax'] < monitor['configured']['percentMax']:
+                        self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                        break  # only one sensor is needed
                 except KeyError:
                     pass
 
