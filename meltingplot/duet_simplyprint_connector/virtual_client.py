@@ -623,16 +623,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            try:
-                compensation = await self._fetch_rr_model(
-                    key='move.compensation',
-                    frequently=False,
-                    depth=4,
-                )
-            except KeyboardInterrupt as e:
-                raise e
-            except Exception:
-                compensation = None
+            compensation = await self._fetch_rr_model(
+                key='move.compensation',
+                return_on_exception=None,
+                frequently=False,
+                depth=4,
+            )
 
             old_compensation = self._compensation
             self._compensation = compensation
