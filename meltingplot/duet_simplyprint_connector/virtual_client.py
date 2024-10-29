@@ -182,7 +182,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self._printer_status_task()
         await self._job_status_task()
         await self._filament_monitors_task()
-        await self._compensation_status_task()
+        await self._mesh_compensation_status_task()
         await self._connector_status_task()
 
         self.printer.info.core_count = psutil.cpu_count(logical=False)
@@ -623,7 +623,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await asyncio.sleep(5)
 
     @async_task
-    async def _compensation_status_task(self) -> None:
+    async def _mesh_compensation_status_task(self) -> None:
         """Task to check for mesh compensation changes and send mesh data to SimplyPrint."""
         while not self._is_stopped:
             if not self._duet_connected:
@@ -642,7 +642,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 compensation = None
 
             old_compensation = self._compensation
-
             self._compensation = compensation
 
             if (
@@ -952,24 +951,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @Demands.StreamOffEvent.on
     async def on_stream_off(self, event: Demands.StreamOffEvent) -> None:
         """Turn off the webcam stream."""
-        pass
-
-    @Demands.HasGcodeChangesEvent.on
-    async def on_has_gcode_changes(
-        self,
-        event: Demands.HasGcodeChangesEvent,
-    ) -> None:
-        """Check if there are GCode changes."""
-        # print(event)
-        pass
-
-    @Demands.GetGcodeScriptBackupsEvent.on
-    async def on_get_gcode_script_backups(
-        self,
-        event: Demands.GetGcodeScriptBackupsEvent,
-    ) -> None:
-        """Get GCode script backups."""
-        # print(event)
         pass
 
     @Demands.ApiRestartEvent.on
