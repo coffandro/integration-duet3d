@@ -68,7 +68,7 @@ duet_state_simplyprint_status_while_printing_mapping = {
 }
 
 
-def merge(source, destination):
+def merge_dictionary(source, destination):
     """Merge multiple dictionaries."""
     # {'a': 1, 'b': {'c': 2}},
     # {'b': {'c': 3}},
@@ -78,7 +78,7 @@ def merge(source, destination):
     dk = dict(destination)
     for key, value in source.items():
         if isinstance(value, dict):
-            result[key] = merge(value, destination.get(key, {}))
+            result[key] = merge_dictionary(value, destination.get(key, {}))
         elif isinstance(value, list):
             result[key] = value
             dest_value = destination.get(key, [])
@@ -99,7 +99,7 @@ def merge(source, destination):
                 if dest_value[idx] is None:
                     continue
                 if isinstance(item, dict):
-                    result[key][idx] = merge(item, dest_value[idx])
+                    result[key][idx] = merge_dictionary(item, dest_value[idx])
         else:
             result[key] = destination.get(key, value)
         dk.pop(key, None)
@@ -532,7 +532,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     depth=99,
                 )
 
-                printer_status = merge(self._printer_status, partial_status)
+                printer_status = merge_dictionary(self._printer_status, partial_status)
 
         except (aiohttp.ClientConnectionError, TimeoutError):
             printer_status = None
@@ -555,18 +555,18 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
         return job_status
 
-    async def _fetch_rr_model(self, key, return_on_exception=None, **kwargs) -> dict:
+    async def _fetch_rr_model(self, key, return_on_exception=None, return_on_timeout=None, **kwargs) -> dict:
         try:
             response = await self.duet.rr_model(
                 key=key,
                 **kwargs,
             )
         except (aiohttp.ClientConnectionError, TimeoutError):
-            response = None
+            response = return_on_timeout
         except KeyboardInterrupt as e:
             raise e
         except Exception as e:
-            msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".fomrat(
+            msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".format(
                 type(e).__name__,
                 key,
             )

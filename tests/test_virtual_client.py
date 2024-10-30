@@ -3,10 +3,12 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
+import aiohttp
+
 import pytest
 
 from .context import Demands, FileProgressState, VirtualClient, VirtualConfig
-from meltingplot.duet_simplyprint_connector.virtual_client import merge
+from meltingplot.duet_simplyprint_connector.virtual_client import merge_dictionary
 
 @pytest.fixture
 def virtual_client():
@@ -137,5 +139,60 @@ async def test_download_and_upload_file_progress_between_90_and_100(virtual_clie
 )
 def test_merge(source, destination, expected):
     """Test the merge function."""
-    result = merge(source, destination)
+    result = merge_dictionary(source, destination)
     assert result == expected
+
+@pytest.mark.asyncio
+async def test_fetch_rr_model_success(virtual_client):
+    """Test _fetch_rr_model with a successful response."""
+    key = "job"
+    expected_response = {"result": {"file": {"filename": "test.gcode"}}}
+
+    virtual_client.duet.rr_model = AsyncMock(return_value=expected_response)
+
+    response = await virtual_client._fetch_rr_model(key=key)
+
+    assert response == expected_response
+    virtual_client.duet.rr_model.assert_called_once_with(key=key)
+
+
+@pytest.mark.asyncio
+async def test_fetch_rr_model_client_connection_error(virtual_client):
+    """Test _fetch_rr_model with a ClientConnectionError."""
+    key = "job"
+    return_on_timeout = {"timeout": True}
+
+    virtual_client.duet.rr_model = AsyncMock(side_effect=aiohttp.ClientConnectionError)
+
+    response = await virtual_client._fetch_rr_model(key=key, return_on_timeout=return_on_timeout)
+
+    assert response == return_on_timeout
+    virtual_client.duet.rr_model.assert_called_once_with(key=key)
+
+
+@pytest.mark.asyncio
+async def test_fetch_rr_model_timeout_error(virtual_client):
+    """Test _fetch_rr_model with a TimeoutError."""
+    key = "job"
+    return_on_timeout = {"timeout": True}
+
+    virtual_client.duet.rr_model = AsyncMock(side_effect=TimeoutError)
+
+    response = await virtual_client._fetch_rr_model(key=key, return_on_timeout=return_on_timeout)
+
+    assert response == return_on_timeout
+    virtual_client.duet.rr_model.assert_called_once_with(key=key)
+
+
+@pytest.mark.asyncio
+async def test_fetch_rr_model_other_exception(virtual_client):
+    """Test _fetch_rr_model with a generic exception."""
+    key = "job"
+    return_on_exception = {"exception": True}
+
+    virtual_client.duet.rr_model = AsyncMock(side_effect=Exception("Test Exception"))
+
+    response = await virtual_client._fetch_rr_model(key=key, return_on_exception=return_on_exception)
+
+    assert response == return_on_exception
+    virtual_client.duet.rr_model.assert_called_once_with(key=key)
