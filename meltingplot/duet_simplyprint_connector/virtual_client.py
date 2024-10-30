@@ -534,7 +534,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
                 printer_status = merge_dictionary(self._printer_status, partial_status)
 
-        except (aiohttp.ClientConnectionError, TimeoutError):
+        except (
+            aiohttp.ClientConnectionError,
+            TimeoutError,
+            asyncio.exceptions.TimeoutError,
+            asyncio.exceptions.CancelledError,
+        ):
             printer_status = None
         except KeyboardInterrupt as e:
             raise e
@@ -561,7 +566,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 key=key,
                 **kwargs,
             )
-        except (aiohttp.ClientConnectionError, TimeoutError):
+        except (
+            aiohttp.ClientConnectionError,
+            TimeoutError,
+            asyncio.exceptions.TimeoutError,
+            asyncio.exceptions.CancelledError,
+        ):
             response = return_on_timeout
         except KeyboardInterrupt as e:
             raise e
@@ -711,6 +721,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _filament_monitors_task(self) -> None:
         """Task to check for filament sensor changes."""
         while not self._is_stopped:
+            if not self._duet_connected:
+                await asyncio.sleep(10)
+                continue
+
             filament_monitors = await self._fetch_rr_model(
                 key='sensors.filamentMonitors',
                 frequently=False,
