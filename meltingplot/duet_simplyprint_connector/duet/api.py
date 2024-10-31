@@ -105,6 +105,12 @@ class RepRapFirmware():
 
         return json_response
 
+    async def close(self) -> None:
+        """Close the Client Session."""
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
+
     async def disconnect(self) -> dict:
         """Disconnect from the Duet."""
         url = 'http://{0}/rr_disconnect'.format(self.address)
