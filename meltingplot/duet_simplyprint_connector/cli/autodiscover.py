@@ -24,6 +24,8 @@ import aiohttp
 
 import click
 
+from simplyprint_ws_client.client import ClientApp
+
 from ..duet.api import RepRapFirmware
 
 
@@ -59,10 +61,24 @@ async def connect_to_duet(ip_address, password):
         board = await duet.rr_model(key='boards[0]')
         board = board['result']
     except (
+        aiohttp.client_exceptions.ClientConnectorError,
         aiohttp.ClientError,
-        TimeoutError,
         asyncio.exceptions.CancelledError,
         asyncio.exceptions.TimeoutError,
+        OSError,
+    ):
+        await duet.close()
+        return None
+
+    try:
+        duet_name = await duet.rr_model(key='network.name')
+        duet_name = duet_name['result']
+    except (
+        aiohttp.client_exceptions.ClientConnectorError,
+        aiohttp.ClientError,
+        asyncio.exceptions.CancelledError,
+        asyncio.exceptions.TimeoutError,
+        OSError,
     ):
         return None
     finally:
@@ -71,6 +87,7 @@ async def connect_to_duet(ip_address, password):
     board['uniqueId']
 
     return {
+        'duet_name': f"{duet_name}",
         'duet_uri': f'{ip_address}',
         'duet_password': password,
         'duet_unique_id': f"{board['uniqueId']}",
@@ -88,29 +105,84 @@ async def connect_to_range(password, ipv4_range, ipv6_range):
     return await asyncio.gather(*tasks)
 
 
-@click.command()
-@click.option(
-    '--password',
-    prompt=True,
-    default='reprap',
-    hide_input=False,
-    confirmation_prompt=False,
-    help='Password for authentication',
-)
-@click.option('--ipv4-range', prompt=True, default='192.168.1.0/24', help='IP range to scan for devices')
-@click.option('--ipv6-range', prompt=True, default='::1/128', help='IPv6 range to scan for devices')
-def autodiscover(password, ipv4_range, ipv6_range):
-    """Autodiscover devices in the specified IP range."""
-    ipv4_addresses = convert_cidr_to_list(ipv4_range)
-    ipv6_addresses = convert_cidr_to_list(ipv6_range)
+class AutoDiscover():
+    """
+    A class to handle the autodiscovery of devices within specified IP ranges.
 
-    click.echo(
-        f'Starting autodiscovery with password: {password}, '
-        f'IPv4 range: {ipv4_range}, and IPv6 range: {ipv6_range}',
-    )
+    Attributes:
+        app (ClientApp): The application instance.
+        autodiscover (click.Command): The Click command for autodiscovery.
 
-    responses = asyncio.run(connect_to_range(password, ipv4_addresses, ipv6_addresses))
+    Methods:
+        __init__(app: ClientApp) -> None:
+            Initializes the AutoDiscover class with the given application instance.
+    """
 
-    for client in responses:
-        if client is not None:
-            click.echo(f'{client}')
+    def __init__(self, app: ClientApp) -> None:
+        """Initialize the AutoDiscover class with the given application instance."""
+        self.app = app
+
+        self.autodiscover = click.Command(
+            name='autodiscover',
+            callback=self.autodiscover,
+            params=[
+                click.Option(
+                    ['--password'],
+                    prompt=True,
+                    default='reprap',
+                    hide_input=False,
+                    confirmation_prompt=False,
+                    help='Password for authentication',
+                ),
+                click.Option(
+                    ['--ipv4-range'],
+                    prompt=True,
+                    default='192.168.1.0/24',
+                    help='IPv4 range to scan for devices',
+                ),
+                click.Option(
+                    ['--ipv6-range'],
+                    prompt=True,
+                    default='::1/128',
+                    help='IPv6 range to scan for devices',
+                ),
+            ],
+        )
+
+    def autodiscover(self, password, ipv4_range, ipv6_range):
+        """Autodiscover devices in the specified IP range."""
+        ipv4_addresses = convert_cidr_to_list(ipv4_range)
+        ipv6_addresses = convert_cidr_to_list(ipv6_range)
+
+        click.echo(
+            f'Starting autodiscovery with password: {password}, '
+            f'IPv4 range: {ipv4_range}, and IPv6 range: {ipv6_range}',
+        )
+
+        responses = asyncio.run(connect_to_range(password, ipv4_addresses, ipv6_addresses))
+
+        clients = {f"{client['duet_unique_id']}": client for client in responses if client is not None}
+
+        self.app.logger.debug(f'Found {len(clients)} devices.')
+
+        for client in clients.values():
+            self.app.logger.debug(f'Found device: {client["duet_name"]}')
+
+        configs = self.app.config_manager.get_all()
+        for config in configs:
+            if config.duet_unique_id in clients:
+                self.app.logger.debug(f'Found existing config for {config.duet_unique_id}. Updating.')
+
+                config.duet_uri = clients[config.duet_unique_id]['duet_uri']
+                clients.pop(config.duet_unique_id, None)
+
+        for client in clients.values():
+            self.app.logger.debug(f'Adding new config for {client["duet_unique_id"]}')
+            config = self.app.config_manager.config_t.get_new()
+            config.duet_name = client['duet_name']
+            config.duet_uri = client['duet_uri']
+            config.duet_password = client['duet_password']
+            config.duet_unique_id = client['duet_unique_id']
+            self.app.config_manager.persist(config)
+
+        self.app.config_manager.flush()

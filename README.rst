@@ -24,10 +24,10 @@ Supported features:
 - Device healts update
 - Bed leveling
 - Filament Sensor
+- Duet auto discovery with tracking based on BoardID
 
 Missing features:
 
-- Duet auto discovery with tracking based on BoardID
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
 - GCode terminal [not yet implemented by Simplyprint.io for Duet]
@@ -49,7 +49,8 @@ Installation
     pip install --upgrade pip setuptools wheel
     pip install meltingplot.duet_simplyprint_connector
     # see next section for content of config.json
-    simplyprint config new
+    simplyprint autodiscover --password=reprap --ipv4-range=192.168.1.0/24 --ipv6-range=::1/128
+    # optional - add webcam snapshot uri
     vi ~/.config/SimplyPrint/DuetConnector.json
     sudo ln -s ~/mp_duet_simplyprint_connector/venv/bin/simplyprint /usr/local/bin/simplyprint
     sudo cp ~/mp_duet_simplyprint_connector/venv/simplyprint-connector.service /etc/systemd/system
@@ -77,6 +78,8 @@ The default password for the Duet is `reprap`, even if the web interface does no
             "unique_id": "...",
             "duet_uri": "IP_OF_YOUR_DUET",
             "duet_password": "reprap",
+            "duet_unique_id": "YOUR_DUET_BOARD_ID",
+            "duet_name": "YOUR_DUET_NAME",
             "webcam_uri": "http://URI_OF_WEBCAM_SNAPSHOT_ENDPOINT/snapshot"
         }
     ]
@@ -86,7 +89,7 @@ The default password for the Duet is `reprap`, even if the web interface does no
 Usage of Meltingplot Duet Simplyprint Connector
 -----------------------------------------------
 
-- Create a configuration with `simplyprint config new`
-- Edit the configuration file `~/.config/SimplyPrint/DuetConnector.json`
+- Create a configuration with `simplyprint autodiscover`
+- *Optional* Edit the configuration file `~/.config/SimplyPrint/DuetConnector.json`
 - Start the duet simplyprint connector with `simplyprint start` or `systemctl start simplyprint-connector.service`
 - Add the printer via the Simplyprint.io web interface.
