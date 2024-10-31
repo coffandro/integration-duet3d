@@ -20,7 +20,7 @@ import imageio.v3 as iio
 
 import psutil
 
-from simplyprint_ws_client.client.client import ClientConfigChangedEvent, DefaultClient
+from simplyprint_ws_client.client.client import Client, ClientConfigChangedEvent, DefaultClient
 from simplyprint_ws_client.client.config import PrinterConfig
 from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
 from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterFilamentSensorEnum, PrinterStatus
@@ -44,8 +44,8 @@ duet_state_simplyprint_status_mapping = {
     'resuming': PrinterStatus.RESUMING,
     'cancelling': PrinterStatus.CANCELLING,
     'processing': PrinterStatus.PRINTING,
-    'simulating': PrinterStatus.NOT_READY,
-    'busy': PrinterStatus.NOT_READY,
+    'simulating': PrinterStatus.OPERATIONAL,
+    'busy': PrinterStatus.OPERATIONAL,
     'changingTool': PrinterStatus.OPERATIONAL,
     'idle': PrinterStatus.OPERATIONAL,
 }
@@ -127,9 +127,9 @@ def async_supress(func):
             await func(*args, **kwargs)
         except KeyboardInterrupt as e:
             raise e
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             await args[0].duet.close()
-            raise
+            raise e
         except Exception as e:
             args[0].logger.exception(
                 "An exception occurred while running an async function",
@@ -183,12 +183,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
-        await self._printer_status_task()
-        await self._job_status_task()
-        await self._filament_monitors_task()
-        await self._mesh_compensation_status_task()
-        await self._connector_status_task()
-
         self.printer.info.core_count = psutil.cpu_count(logical=False)
         self.printer.info.total_memory = psutil.virtual_memory().total
         self.printer.info.hostname = socket.getfqdn()
@@ -200,10 +194,28 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         else:
             self.printer.info.machine = PhysicalMachine.machine()
 
+    @Client.connected.getter
+    def connected(self) -> bool:
+        """Check if the client is connected to the server."""
+        return self._connected
+
+    @connected.setter
+    def connected(self, value: bool):
+        if value is False:
+            asyncio.run_coroutine_threadsafe(self.stop(), self.event_loop)
+        else:
+            Client.connected.fset(self, value)
+
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
         """Connect to Simplyprint.io."""
         self.logger.info('Connected to Simplyprint.io')
+
+        await self._printer_status_task()
+        await self._job_status_task()
+        await self._filament_monitors_task()
+        await self._mesh_compensation_status_task()
+        await self._connector_status_task()
 
     @Events.PrinterSettingsEvent.on
     async def on_printer_settings(
@@ -247,8 +259,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         response = []
 
         for item in gcode.code:
-            if item.code in allowed_commands:
+            if item.code in allowed_commands and not self.config.in_setup:
                 response.append(await self.duet.rr_gcode(item.compress()))
+            elif item.code == 'M300' and self.config.in_setup:
+                response.append(
+                    await self.duet.rr_gcode(
+                        f'M291 P"Simplyprint.io Code: {self.config.short_id}" R"Simplyprint Identification" S2',
+                    ),
+                )
             elif item.code == 'M997':
                 # perform self upgrade
                 self.logger.info('Performing self upgrade')
@@ -454,9 +472,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             board = board['result']
         except KeyboardInterrupt as e:
             raise e
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             await self.duet.close()
-            raise
+            raise e
         except Exception as e:
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
 
@@ -481,6 +499,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.firmware.version = board['firmwareVersion']
         self.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
         self.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
+
         self._duet_connected = True
 
     async def _update_temperatures(self, printer_status: dict) -> None:
@@ -554,9 +573,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             printer_status = None
         except KeyboardInterrupt as e:
             raise e
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             await self.duet.close()
-            raise
+            raise e
         except Exception:
             self.logger.exception(
                 "An exception occurred while updating the printer status",
@@ -588,9 +607,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             response = return_on_timeout
         except KeyboardInterrupt as e:
             raise e
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             await self.duet.close()
-            raise
+            raise e
         except Exception as e:
             msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".format(
                 type(e).__name__,
@@ -608,11 +627,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             try:
                 if not self._duet_connected:
                     await self._connect_to_duet()
+                    if self.config.in_setup:
+                        await self.duet.rr_gcode(
+                            f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
+                        )
             except KeyboardInterrupt as e:
                 raise e
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as e:
                 await self.duet.close()
-                raise
+                raise e
             except Exception:
                 await asyncio.sleep(60)
                 continue
@@ -673,9 +696,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     await self._send_mesh_data()
                 except KeyboardInterrupt as e:
                     raise e
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as e:
                     await self.duet.close()
-                    raise
+                    raise e
                 except Exception as e:
                     self.logger.exception(
                         "An exception occurred while sending mesh data",
@@ -886,9 +909,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self.send_ping()
         except KeyboardInterrupt as e:
             raise e
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as e:
             await self.duet.close()
-            raise
+            raise e
         except Exception as e:
             self.logger.exception(
                 "An exception occurred while ticking the client state",
@@ -897,6 +920,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def stop(self) -> None:
         """Stop the client."""
+        self.logger.debug('Stopping client')
         self._is_stopped = True
         for task in self._background_task:
             task.cancel()
@@ -954,9 +978,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     await self._send_webcam_snapshot(image=image)
             except KeyboardInterrupt as e:
                 raise e
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as e:
                 await self.duet.close()
-                raise
+                raise e
             except Exception as e:
                 self.logger.debug("Failed to fetch webcam image: {}".format(e))
             await asyncio.sleep(10)
@@ -974,7 +998,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # `SimplyPrintApi.post_snapshot` you can call if you want to implement job state images.
 
         self._webcam_timeout = time.time() + 60
-        if self._webcam_task_handle is None:
+        if self._webcam_task_handle is None and self.config.webcam_uri is not None:
             self._webcam_task_handle = await self._webcam_task()
 
         async with self._requested_webcam_snapshots_lock:
