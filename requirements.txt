@@ -1,4 +1,4 @@
-simplyprint-ws-client>=1.0.0rc25
+simplyprint-ws-client>=1.0.0rc26
 aiohttp
 attrs
 imageio[ffmpeg]
