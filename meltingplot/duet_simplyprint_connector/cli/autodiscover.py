@@ -163,26 +163,27 @@ class AutoDiscover():
 
         clients = {f"{client['duet_unique_id']}": client for client in responses if client is not None}
 
-        self.app.logger.debug(f'Found {len(clients)} devices.')
+        self.app.logger.info(f'Found {len(clients)} devices.')
 
         for client in clients.values():
-            self.app.logger.debug(f'Found device: {client["duet_name"]}')
+            self.app.logger.info(f'Found device: {client["duet_name"]}')
 
         configs = self.app.config_manager.get_all()
         for config in configs:
             if config.duet_unique_id in clients:
-                self.app.logger.debug(f'Found existing config for {config.duet_unique_id}. Updating.')
+                self.app.logger.info(f'Found existing config for {config.duet_unique_id}. Updating.')
 
                 config.duet_uri = clients[config.duet_unique_id]['duet_uri']
                 clients.pop(config.duet_unique_id, None)
 
         for client in clients.values():
-            self.app.logger.debug(f'Adding new config for {client["duet_unique_id"]}')
+            self.app.logger.info(f'Adding new config for {client["duet_name"]} - {client["duet_unique_id"]}')
             config = self.app.config_manager.config_t.get_new()
             config.duet_name = client['duet_name']
             config.duet_uri = client['duet_uri']
             config.duet_password = client['duet_password']
             config.duet_unique_id = client['duet_unique_id']
+            config.in_setup = True
             self.app.config_manager.persist(config)
 
         self.app.config_manager.flush()
