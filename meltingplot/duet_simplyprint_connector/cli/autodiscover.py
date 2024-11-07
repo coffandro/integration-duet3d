@@ -47,30 +47,8 @@ async def connect_to_duet(ip_address, password):
 
     try:
         await duet.connect()
-    except (
-        aiohttp.client_exceptions.ClientConnectorError,
-        aiohttp.ClientError,
-        asyncio.exceptions.CancelledError,
-        asyncio.exceptions.TimeoutError,
-        OSError,
-    ):
-        await duet.close()
-        return None
-
-    try:
         board = await duet.rr_model(key='boards[0]')
         board = board['result']
-    except (
-        aiohttp.client_exceptions.ClientConnectorError,
-        aiohttp.ClientError,
-        asyncio.exceptions.CancelledError,
-        asyncio.exceptions.TimeoutError,
-        OSError,
-    ):
-        await duet.close()
-        return None
-
-    try:
         duet_name = await duet.rr_model(key='network.name')
         duet_name = duet_name['result']
     except (
@@ -79,6 +57,7 @@ async def connect_to_duet(ip_address, password):
         asyncio.exceptions.CancelledError,
         asyncio.exceptions.TimeoutError,
         OSError,
+        KeyError,
     ):
         return None
     finally:

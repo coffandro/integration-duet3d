@@ -8,6 +8,7 @@ from simplyprint_ws_client.client.logging import ClientHandler
 from simplyprint_ws_client.helpers.url_builder import SimplyPrintBackend
 
 from . import __version__
+from .cli.autodiscover import AutoDiscover
 from .virtual_client import VirtualClient, VirtualConfig
 
 
@@ -35,6 +36,10 @@ def main():
 
     app = ClientApp(client_options)
     cli = ClientCli(app)
+
+    autodiscover = AutoDiscover(app)
+
+    cli.add_command(autodiscover.autodiscover)
     cli.start_client = lambda: app.run_blocking()
     cli(prog_name="python -m meltingplot.duet_simplyprint_connector")
 
