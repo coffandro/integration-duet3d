@@ -63,8 +63,6 @@ async def connect_to_duet(ip_address, password):
     finally:
         await duet.close()
 
-    board['uniqueId']
-
     return {
         'duet_name': f"{duet_name}",
         'duet_uri': f'{ip_address}',
