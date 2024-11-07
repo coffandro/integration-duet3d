@@ -201,10 +201,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @connected.setter
     def connected(self, value: bool):
-        if value is False:
-            asyncio.run_coroutine_threadsafe(self.stop(), self.event_loop)
-        else:
-            Client.connected.fset(self, value)
+        # if value is False:
+        #     asyncio.run_coroutine_threadsafe(self.stop(), self.event_loop)
+        # else:
+        Client.connected.fset(self, value)
 
     @Events.ConnectEvent.on
     async def on_connect(self, event: Events.ConnectEvent) -> None:
