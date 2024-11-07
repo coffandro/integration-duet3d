@@ -125,8 +125,6 @@ def async_supress(func):
     async def wrapper(*args, **kwargs):
         try:
             await func(*args, **kwargs)
-        except KeyboardInterrupt as e:
-            raise e
         except asyncio.CancelledError as e:
             await args[0].duet.close()
             raise e
@@ -470,13 +468,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             board = await self.duet.rr_model(key='boards[0]')
             board = board['result']
-        except KeyboardInterrupt as e:
-            raise e
-        except asyncio.CancelledError as e:
-            await self.duet.close()
-            raise e
         except Exception as e:
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
+            raise e
 
         self.logger.info('Connected to Duet Board {0}'.format(board))
 
@@ -493,7 +487,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 )
                 self.printer.status = PrinterStatus.OFFLINE
                 # TODO: Implement a search mechanism based on the unique ID
-                return
+                raise ValueError('Unique ID mismatch')
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
@@ -571,11 +565,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             asyncio.exceptions.TimeoutError,
         ):
             printer_status = None
-        except KeyboardInterrupt as e:
-            raise e
-        except asyncio.CancelledError as e:
-            await self.duet.close()
-            raise e
         except Exception:
             self.logger.exception(
                 "An exception occurred while updating the printer status",
@@ -605,11 +594,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             asyncio.exceptions.TimeoutError,
         ):
             response = return_on_timeout
-        except KeyboardInterrupt as e:
-            raise e
-        except asyncio.CancelledError as e:
-            await self.duet.close()
-            raise e
         except Exception as e:
             msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".format(
                 type(e).__name__,
@@ -631,8 +615,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         await self.duet.rr_gcode(
                             f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
                         )
-            except KeyboardInterrupt as e:
-                raise e
             except asyncio.CancelledError as e:
                 await self.duet.close()
                 raise e
@@ -640,16 +622,19 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await asyncio.sleep(60)
                 continue
 
-            fetch_full_status = False
-            if time.time() > next_full_status:
-                # Fetch full status every 15 minutes
-                fetch_full_status = True
-                next_full_status = time.time() + 60 * 15
+            try:
+                fetch_full_status = False
+                if time.time() > next_full_status:
+                    # Fetch full status every 15 minutes
+                    fetch_full_status = True
+                    next_full_status = time.time() + 60 * 15
 
-            self._printer_status = await self._fetch_printer_status(force_full_status=fetch_full_status)
-            await self._update_printer_status()
-
-            await asyncio.sleep(1)
+                self._printer_status = await self._fetch_printer_status(force_full_status=fetch_full_status)
+                await self._update_printer_status()
+                await asyncio.sleep(1)
+            except asyncio.CancelledError as e:
+                await self.duet.close()
+                raise e
 
     @async_task
     async def _job_status_task(self) -> None:
@@ -694,11 +679,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             ):
                 try:
                     await self._send_mesh_data()
-                except KeyboardInterrupt as e:
-                    raise e
-                except asyncio.CancelledError as e:
-                    await self.duet.close()
-                    raise e
                 except Exception as e:
                     self.logger.exception(
                         "An exception occurred while sending mesh data",
@@ -907,11 +887,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Update the client state."""
         try:
             await self.send_ping()
-        except KeyboardInterrupt as e:
-            raise e
-        except asyncio.CancelledError as e:
-            await self.duet.close()
-            raise e
         except Exception as e:
             self.logger.exception(
                 "An exception occurred while ticking the client state",
@@ -976,14 +951,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     IntervalTypes.WEBCAM,
                 ):
                     await self._send_webcam_snapshot(image=image)
-            except KeyboardInterrupt as e:
-                raise e
-            except asyncio.CancelledError as e:
-                await self.duet.close()
-                raise e
             except Exception as e:
                 self.logger.debug("Failed to fetch webcam image: {}".format(e))
-            await asyncio.sleep(10)
+                await asyncio.sleep(10)
         self._webcam_task_handle = None
 
     @Demands.WebcamSnapshotEvent.on
