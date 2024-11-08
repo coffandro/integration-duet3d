@@ -48,16 +48,12 @@ Installation
     source venv/bin/activate
     pip install --upgrade pip setuptools wheel
     pip install meltingplot.duet_simplyprint_connector
-    # see next section for content of config.json
     simplyprint autodiscover --password=reprap --ipv4-range=192.168.1.0/24 --ipv6-range=::1/128
+    
     # optional - add webcam snapshot uri
     vi ~/.config/SimplyPrint/DuetConnector.json
-    sudo ln -s ~/mp_duet_simplyprint_connector/venv/bin/simplyprint /usr/local/bin/simplyprint
-    sudo cp ~/mp_duet_simplyprint_connector/venv/simplyprint-connector.service /etc/systemd/system
-    # change service file to match user and group and working dir, e.g. tim tim /home/tim/mp_duet_simplyprint_connector
-    sudo vi /etc/systemd/system/simplyprint-connector.service
-    sudo systemctl enable simplyprint-connector.service
-    sudo systemctl start simplyprint-connector.service
+    
+    simplyprint install-as-service
 
 -----------------------------
 Content of DuetConnector.json
