@@ -610,19 +610,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         while not self._is_stopped:
             try:
                 if not self._duet_connected:
-                    await self._connect_to_duet()
+                    try:
+                        await self._connect_to_duet()
+                    except Exception:
+                        await asyncio.sleep(60)
+
                     if self.config.in_setup:
                         await self.duet.rr_gcode(
                             f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
                         )
-            except asyncio.CancelledError as e:
-                await self.duet.close()
-                raise e
-            except Exception:
-                await asyncio.sleep(60)
-                continue
 
-            try:
                 fetch_full_status = False
                 if time.time() > next_full_status:
                     # Fetch full status every 15 minutes
@@ -635,6 +632,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             except asyncio.CancelledError as e:
                 await self.duet.close()
                 raise e
+            except Exception:
+                continue
 
     @async_task
     async def _job_status_task(self) -> None:
