@@ -614,6 +614,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         await self._connect_to_duet()
                     except Exception:
                         await asyncio.sleep(60)
+                        continue
 
                     if self.config.in_setup:
                         await self.duet.rr_gcode(
