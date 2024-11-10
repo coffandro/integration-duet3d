@@ -32,6 +32,7 @@ from simplyprint_ws_client.helpers.physical_machine import PhysicalMachine
 from . import __version__
 from .duet.api import RepRapFirmware
 from .gcode import GCodeBlock
+from .network import get_local_ip_and_mac
 
 duet_state_simplyprint_status_mapping = {
     'disconnected': PrinterStatus.OFFLINE,
@@ -694,41 +695,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.cpu_info.temperature = 0.0
         self.printer.cpu_info.memory = psutil.virtual_memory().percent
 
-    async def _get_local_ip_and_mac(self) -> None:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0)
-        try:
-            # doesn't even have to be reachable
-            # we just need to know the local ip
-            # so we can send it to simplyprint
-            s.connect(("168.119.98.102", 80))
-            local_ip = s.getsockname()[0]
-        except socket.error:
-            local_ip = '127.0.0.1'
-        finally:
-            s.close()
-        self.printer.info.local_ip = local_ip
-
-        nics = psutil.net_if_addrs()
-        for iface in nics:
-            if iface == 'lo':
-                continue
-            mac = None
-            found = False
-            for addr in nics[iface]:
-                if addr.family == socket.AF_INET and addr.address == local_ip:
-                    found = True
-                if addr.family == psutil.AF_LINK:
-                    mac = addr.address
-            if found:
-                self.printer.info.mac = mac
-
     @async_task
     async def _connector_status_task(self) -> None:
         """Task to gather connector infos and send data to SimplyPrint."""
         while not self._is_stopped:
             await self._update_cpu_and_memory_info()
-            await self._get_local_ip_and_mac()
+
+            netinfo = get_local_ip_and_mac()
+            self.printer.info.local_ip = netinfo.ip
+            self.printer.info.mac = netinfo.mac
+
             await asyncio.sleep(120)
 
     async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:

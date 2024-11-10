@@ -27,6 +27,7 @@ import click
 from simplyprint_ws_client.client import ClientApp
 
 from ..duet.api import RepRapFirmware
+from ..network import get_local_ip_and_mac
 
 
 def convert_cidr_to_list(ip_range) -> list:
@@ -99,6 +100,11 @@ class AutoDiscover():
         """Initialize the AutoDiscover class with the given application instance."""
         self.app = app
 
+        netinfo = get_local_ip_and_mac()
+        ipv4_range = ipaddress.ip_network(netinfo.ip).supernet(new_prefix=24)
+        default_ipv4_range = f"{ipv4_range}"
+
+        self._autodiscover = self.autodiscover
         self.autodiscover = click.Command(
             name='autodiscover',
             callback=self.autodiscover,
@@ -114,7 +120,7 @@ class AutoDiscover():
                 click.Option(
                     ['--ipv4-range'],
                     prompt=True,
-                    default='192.168.1.0/24',
+                    default=default_ipv4_range,
                     help='IPv4 range to scan for devices',
                 ),
                 click.Option(
