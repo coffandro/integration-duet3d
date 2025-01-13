@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import aiohttp
 
@@ -28,6 +28,8 @@ from simplyprint_ws_client.const import VERSION as SP_VERSION
 from simplyprint_ws_client.helpers.file_download import FileDownload
 from simplyprint_ws_client.helpers.intervals import IntervalTypes
 from simplyprint_ws_client.helpers.physical_machine import PhysicalMachine
+
+from yarl import URL
 
 from . import __version__
 from .duet.api import RepRapFirmware
@@ -139,6 +141,14 @@ def async_supress(func):
 
 
 @dataclass
+class WebcamSnapshotRequest():
+    """Webcam snapshot request."""
+
+    snapshot_id: str = None
+    endpoint: Union[str, URL, None] = None
+
+
+@dataclass
 class VirtualConfig(PrinterConfig):
     """Configuration for the VirtualClient."""
 
@@ -172,8 +182,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self._webcam_timeout = 0
         self._webcam_task_handle = None
-        self._requested_webcam_snapshots = 1
-        self._requested_webcam_snapshots_lock = asyncio.Lock()
+        self._requested_webcam_snapshots = asyncio.Queue()
 
         self._background_task = set()
         self._is_stopped = False
@@ -192,6 +201,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.info.machine = self.config.duet_name or self.config.duet_uri
         else:
             self.printer.info.machine = PhysicalMachine.machine()
+
+        request = WebcamSnapshotRequest()
+        await self._requested_webcam_snapshots.put(request)
 
     @Client.connected.getter
     def connected(self) -> bool:
@@ -882,14 +894,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Test the webcam."""
         self.printer.webcam_info.connected = (True if self.config.webcam_uri is not None else False)
 
-    async def _send_webcam_snapshot(self, image) -> None:
+    async def _send_webcam_snapshot(self, image: bytes) -> None:
         jpg_encoded = image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
         await self.send_event(
             ClientEvents.StreamEvent(data={"base": base64_encoded}),
         )
-        async with self._requested_webcam_snapshots_lock:
-            self._requested_webcam_snapshots -= 1
+
+    async def _send_webcam_snapshot_to_endpoint(self, image: bytes, request: WebcamSnapshotRequest) -> None:
+        import simplyprint_ws_client.helpers.simplyprint_api as sp_api
+
+        self.logger.info(f'Sending webcam snapshot to endpoint: {request.endpoint}')
+        await sp_api.SimplyPrintApi.post_snapshot(
+            endpoint=request.endpoint,
+            image_data=image,
+            snapshot_id=request.snapshot_id,
+        )
 
     async def _fetch_webcam_image(self) -> bytes:
         headers = {"Accept": "image/jpeg"}
@@ -923,10 +943,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             try:
                 image = await self._fetch_webcam_image()
 
-                if self._requested_webcam_snapshots > 0 and self.intervals.is_ready(
-                    IntervalTypes.WEBCAM,
-                ):
-                    await self._send_webcam_snapshot(image=image)
+                if self._requested_webcam_snapshots.qsize() > 0:
+                    request = await self._requested_webcam_snapshots.get()
+                    if request.endpoint is not None:
+                        await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
+                        continue
+                    if self.intervals.is_ready(IntervalTypes.WEBCAM):
+                        await self._send_webcam_snapshot(image=image)
+                    else:
+                        await self._requested_webcam_snapshots.put(request)
             except Exception as e:
                 self.logger.debug("Failed to fetch webcam image: {}".format(e))
                 await asyncio.sleep(10)
@@ -947,8 +972,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         if self._webcam_task_handle is None and self.config.webcam_uri is not None:
             self._webcam_task_handle = await self._webcam_task()
 
-        async with self._requested_webcam_snapshots_lock:
-            self._requested_webcam_snapshots += 1
+        request = WebcamSnapshotRequest(snapshot_id=event.id, endpoint=event.endpoint)
+        await self._requested_webcam_snapshots.put(request)
 
     @Demands.StreamOffEvent.on
     async def on_stream_off(self, event: Demands.StreamOffEvent) -> None:
