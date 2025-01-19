@@ -8,6 +8,7 @@ import aiohttp
 import pytest
 
 from .context import Demands, FileProgressState, VirtualClient, VirtualConfig
+from simplyprint_ws_client.client.state.printer import PrinterStatus
 from meltingplot.duet_simplyprint_connector.virtual_client import merge_dictionary
 
 @pytest.fixture
@@ -196,3 +197,146 @@ async def test_fetch_rr_model_other_exception(virtual_client):
 
     assert response == return_on_exception
     virtual_client.duet.rr_model.assert_called_once_with(key=key)
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_success(virtual_client):
+    """Test successful connection to the Duet board."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    virtual_client.config.duet_unique_id = "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN"
+    mock_duet.connect.return_value = {"status": "connected"}
+    mock_duet.rr_model.side_effect = [
+        {"result": {"uniqueId": "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN", "firmwareName": "RepRapFirmware", "firmwareVersion": "3.6.0"}},
+        {"result": {"name": "Meltingplot-MBL-480-vaswsq"}}
+    ]
+
+    await virtual_client._connect_to_duet()
+
+    assert virtual_client._duet_connected is True
+    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 480] [vaswsq]"
+    assert virtual_client.printer.firmware.name == "RepRapFirmware"
+    assert virtual_client.printer.firmware.version == "3.6.0"
+    mock_duet.connect.assert_called_once()
+    mock_duet.rr_model.assert_any_call(key='boards[0]')
+    mock_duet.rr_model.assert_any_call(key='network')
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_unique_id_mismatch(virtual_client):
+    """Test connection to the Duet board with unique ID mismatch."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    virtual_client.config.duet_unique_id = "WRONG-UNIQUE-ID"
+    mock_duet.connect.return_value = {"status": "connected"}
+    mock_duet.rr_model.side_effect = [
+        {"result": {"uniqueId": "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN"}},
+        {"result": {"name": "Meltingplot.MBL 136 - m83s3j"}}
+    ]
+
+    with pytest.raises(ValueError, match="Unique ID mismatch"):
+        await virtual_client._connect_to_duet()
+
+    assert virtual_client._duet_connected is False
+    mock_duet.connect.assert_called_once()
+    mock_duet.rr_model.assert_any_call(key='boards[0]')
+    mock_duet.rr_model.assert_any_call(key='network')
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_network_name_parsing(virtual_client):
+    """Test connection to the Duet board with different network names."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.return_value = {"status": "connected"}
+    virtual_client.config.duet_unique_id = "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN"
+    mock_duet.rr_model.side_effect = [
+        {"result": {"uniqueId": "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN", "firmwareName": "RepRapFirmware for Duet 2 WiFi/Ethernet", "firmwareVersion": "3.6.0"}},
+        {"result": {"name": "Meltingplot.MBL 133"}}
+    ]
+
+    await virtual_client._connect_to_duet()
+
+    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 133] []"
+    mock_duet.connect.assert_called_once()
+    mock_duet.rr_model.assert_any_call(key='boards[0]')
+    mock_duet.rr_model.assert_any_call(key='network')
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_network_name_parsing_2(virtual_client):
+    """Test connection to the Duet board with different network names."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.return_value = {"status": "connected"}
+    virtual_client.config.duet_unique_id = "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN"
+    mock_duet.rr_model.side_effect = [
+        {"result": {"uniqueId": "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN", "firmwareName": "RepRapFirmware for Duet 2 WiFi/Ethernet", "firmwareVersion": "3.6.0"}},
+        {"result": {"name": "Meltingplot-MBL-480-vazqaz"}}
+    ]
+
+    await virtual_client._connect_to_duet()
+
+    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 480] [vazqaz]"
+    mock_duet.connect.assert_called_once()
+    mock_duet.rr_model.assert_any_call(key='boards[0]')
+    mock_duet.rr_model.assert_any_call(key='network')
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_network_name_parsing_3(virtual_client):
+    """Test connection to the Duet board with different network names."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.return_value = {"status": "connected"}
+    virtual_client.config.duet_unique_id = "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN"
+    mock_duet.rr_model.side_effect = [
+        {"result": {"uniqueId": "08DJM-9178L-L4MSJ-6J1FL-3S86J-TB2LN", "firmwareName": "RepRapFirmware for Duet 2 WiFi/Ethernet", "firmwareVersion": "3.6.0"}},
+        {"result": {"name": "Generic Printername"}}
+    ]
+
+    await virtual_client._connect_to_duet()
+
+    assert virtual_client.printer.info.machine_name == "Generic Printername"
+    mock_duet.connect.assert_called_once()
+    mock_duet.rr_model.assert_any_call(key='boards[0]')
+    mock_duet.rr_model.assert_any_call(key='network')
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_client_connection_error(virtual_client):
+    """Test connection to the Duet board with ClientConnectionError."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.side_effect = aiohttp.ClientConnectionError
+
+    with pytest.raises(aiohttp.ClientConnectionError):
+        await virtual_client._connect_to_duet()
+
+    assert virtual_client.printer.status == PrinterStatus.OFFLINE
+    mock_duet.connect.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_timeout_error(virtual_client):
+    """Test connection to the Duet board with TimeoutError."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.side_effect = TimeoutError
+
+    with pytest.raises(TimeoutError):
+        await virtual_client._connect_to_duet()
+
+    assert virtual_client.printer.status == PrinterStatus.OFFLINE
+    mock_duet.connect.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_connect_to_duet_generic_exception(virtual_client):
+    """Test connection to the Duet board with a generic exception."""
+    mock_duet = AsyncMock()
+    virtual_client.duet = mock_duet
+    mock_duet.connect.side_effect = Exception("Test Exception")
+
+    with pytest.raises(Exception, match="Test Exception"):
+        await virtual_client._connect_to_duet()
+
+    mock_duet.connect.assert_called_once()

@@ -6,6 +6,7 @@ import csv
 import io
 import pathlib
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -481,6 +482,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             board = await self.duet.rr_model(key='boards[0]')
             board = board['result']
+            network = await self.duet.rr_model(key='network')
+            network = network['result']
         except Exception as e:
             self.logger.error('Error connecting to Duet Board: {0}'.format(e))
             raise e
@@ -501,6 +504,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.printer.status = PrinterStatus.OFFLINE
                 # TODO: Implement a search mechanism based on the unique ID
                 raise ValueError('Unique ID mismatch')
+
+        # the format of the machine_name should be [PRINTER MODEL] [PRINTER NAME]
+        name_search = re.search(r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?', network['name'], re.I)
+        try:
+            printer_type = name_search.group(3)
+            printer_name = name_search.group(5) or name_search.group(6) or ''
+            self.printer.info.machine_name = f"[Meltingplot {printer_type.replace('-', ' ')}] [{printer_name}]"
+        except (AttributeError, IndexError):
+            self.printer.info.machine_name = network['name']
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
