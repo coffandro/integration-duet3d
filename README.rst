@@ -28,6 +28,7 @@ Supported features:
 
 Missing features:
 
+- Leave a cookie on the printer to identify the printer in the future
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
 - GCode terminal [not yet implemented by Simplyprint.io for Duet]
