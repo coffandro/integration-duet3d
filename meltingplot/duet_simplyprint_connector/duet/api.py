@@ -66,6 +66,7 @@ class RepRapFirmware():
     http_retries = attr.ib(type=int, default=3)
     session = attr.ib(type=aiohttp.ClientSession, default=None)
     logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
+    _reconnect_lock = attr.ib(type=asyncio.Lock, factory=asyncio.Lock)
 
     async def connect(self) -> dict:
         """Connect to the Duet."""
@@ -73,37 +74,44 @@ class RepRapFirmware():
 
     async def reconnect(self) -> dict:
         """Reconnect to the Duet."""
-        url = 'http://{0}/rr_connect'.format(self.address)
+        # Prevent multiple reconnects
+        if self._reconnect_lock.locked():
+            # Wait for reconnect to finish
+            async with self._reconnect_lock:
+                return {'err': 0}
 
-        params = {
-            'password': self.password,
-            'sessionKey': 'yes',
-        }
+        async with self._reconnect_lock:
+            url = 'http://{0}/rr_connect'.format(self.address)
 
-        if self.session is None:
-            self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.http_timeout),
-                raise_for_status=True,
-            )
-        else:
-            self.session.headers.clear()
+            params = {
+                'password': self.password,
+                'sessionKey': 'yes',
+            }
 
-        json_response = {}
-        async with self.session.get(url, params=params) as r:
-            json_response = await r.json()
+            if self.session is None:
+                self.session = aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self.http_timeout),
+                    raise_for_status=True,
+                )
+            else:
+                self.session.headers.clear()
 
-        try:
-            if json_response['err'] == 0:
-                if 'sessionKey' in json_response:
-                    self.session.headers['X-Session-Key'] = '{!s}'.format(
-                        json_response['sessionKey'],
-                    )
-                if 'sessionTimeout' in json_response:
-                    self.session_timeout = json_response['sessionTimeout']
-        except KeyError as e:
-            raise e
+            json_response = {}
+            async with self.session.get(url, params=params) as r:
+                json_response = await r.json()
 
-        return json_response
+            try:
+                if json_response['err'] == 0:
+                    if 'sessionKey' in json_response:
+                        self.session.headers['X-Session-Key'] = '{!s}'.format(
+                            json_response['sessionKey'],
+                        )
+                    if 'sessionTimeout' in json_response:
+                        self.session_timeout = json_response['sessionTimeout']
+            except KeyError as e:
+                raise e
+
+            return json_response
 
     async def close(self) -> None:
         """Close the Client Session."""

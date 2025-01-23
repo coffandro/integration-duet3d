@@ -116,3 +116,36 @@ async def test_rr_mkdir(reprapfirmware, mock_session):
     response = await reprapfirmware.rr_mkdir('/path/to/directory')
     assert response == {'err': 0}
     mock_session.get.assert_called_once_with('http://10.42.0.2/rr_mkdir', params={'dir': '/path/to/directory'})
+
+@pytest.mark.asyncio
+async def test_reconnect_success(reprapfirmware, mock_session):
+    response = await reprapfirmware.reconnect()
+    assert response == {'err': 0}
+    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_connect', params={'password': 'meltingplot', 'sessionKey': 'yes'})
+
+@pytest.mark.skip
+@pytest.mark.asyncio
+async def test_reconnect_multiple_calls(reprapfirmware, mock_session):
+    # Simulate multiple reconnect calls
+    # TODO make mock_session make a context switch/yield to make the test work
+    mock_session.get.return_value.__aenter__.return_value.json.side_effect = lambda: asyncio.sleep(1)
+    responses = await asyncio.gather(reprapfirmware.reconnect(), reprapfirmware.reconnect(), reprapfirmware.reconnect())
+    for response in responses:
+        assert response == {'err': 0}
+    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_connect', params={'password': 'meltingplot', 'sessionKey': 'yes'})
+
+@pytest.mark.asyncio
+async def test_reconnect_with_session_key(reprapfirmware, mock_session):
+    mock_session.get.return_value.__aenter__.return_value.json = AsyncMock(return_value={'err': 0, 'sessionKey': 'test_key'})
+    response = await reprapfirmware.reconnect()
+    assert response == {'err': 0, 'sessionKey': 'test_key'}
+    #assert reprapfirmware.session.headers['X-Session-Key'] == 'test_key'
+    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_connect', params={'password': 'meltingplot', 'sessionKey': 'yes'})
+
+@pytest.mark.asyncio
+async def test_reconnect_with_session_timeout(reprapfirmware, mock_session):
+    mock_session.get.return_value.__aenter__.return_value.json = AsyncMock(return_value={'err': 0, 'sessionTimeout': 10000})
+    response = await reprapfirmware.reconnect()
+    assert response == {'err': 0, 'sessionTimeout': 10000}
+    assert reprapfirmware.session_timeout == 10000
+    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_connect', params={'password': 'meltingplot', 'sessionKey': 'yes'})
