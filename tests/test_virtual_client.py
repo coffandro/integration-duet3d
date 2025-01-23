@@ -213,7 +213,7 @@ async def test_connect_to_duet_success(virtual_client):
     await virtual_client._connect_to_duet()
 
     assert virtual_client._duet_connected is True
-    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 480] [vaswsq]"
+    assert virtual_client.printer.info.machine_name == "Meltingplot MBL 480 vaswsq"
     assert virtual_client.printer.firmware.name == "RepRapFirmware"
     assert virtual_client.printer.firmware.version == "3.6.0"
     mock_duet.connect.assert_called_once()
@@ -256,7 +256,7 @@ async def test_connect_to_duet_network_name_parsing(virtual_client):
 
     await virtual_client._connect_to_duet()
 
-    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 133] []"
+    assert virtual_client.printer.info.machine_name == "Meltingplot MBL 133"
     mock_duet.connect.assert_called_once()
     mock_duet.rr_model.assert_any_call(key='boards[0]')
     mock_duet.rr_model.assert_any_call(key='network')
@@ -276,7 +276,7 @@ async def test_connect_to_duet_network_name_parsing_2(virtual_client):
 
     await virtual_client._connect_to_duet()
 
-    assert virtual_client.printer.info.machine_name == "[Meltingplot MBL 480] [vazqaz]"
+    assert virtual_client.printer.info.machine_name == "Meltingplot MBL 480 vazqaz"
     mock_duet.connect.assert_called_once()
     mock_duet.rr_model.assert_any_call(key='boards[0]')
     mock_duet.rr_model.assert_any_call(key='network')

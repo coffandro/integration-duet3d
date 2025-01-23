@@ -506,11 +506,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 raise ValueError('Unique ID mismatch')
 
         # the format of the machine_name should be [PRINTER MODEL] [PRINTER NAME]
-        name_search = re.search(r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?', network['name'], re.I)
+        name_search = re.search(
+            r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?',
+            network['name'],
+            re.I,
+        )
         try:
             printer_type = name_search.group(3)
             printer_name = name_search.group(5) or name_search.group(6) or ''
-            self.printer.info.machine_name = f"[Meltingplot {printer_type.replace('-', ' ')}] [{printer_name}]"
+            printer_name = " ".join((printer_type.replace('-', ' '), printer_name)).strip()
+            self.printer.info.machine_name = f"Meltingplot {printer_name}"
         except (AttributeError, IndexError):
             self.printer.info.machine_name = network['name']
 
@@ -659,6 +664,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await self.duet.close()
                 raise e
             except Exception:
+                self.logger.exception(
+                    "An exception occurred while fetching printer status",
+                )
+                await asyncio.sleep(10)
                 continue
 
     @async_task
