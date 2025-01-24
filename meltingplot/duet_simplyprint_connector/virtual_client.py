@@ -322,8 +322,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Update the file upload progress."""
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
-        # Ensure we send events to SimplyPrint
-        # asyncio.run_coroutine_threadsafe(self.consume(), self.event_loop)
 
     async def _auto_start_file(self, event) -> None:
         """Auto start the file after it has been uploaded."""
@@ -350,11 +348,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             timeleft = 10 - ((timeout - time.time()) * 0.025)
             self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
 
-            # Ensure we send events to SimplyPrint
-            # asyncio.run_coroutine_threadsafe(
-            #     self.consume(),
-            #     self.event_loop,
-            # )
             await asyncio.sleep(1)
         else:
             raise TimeoutError('Timeout while waiting for file to be ready')
