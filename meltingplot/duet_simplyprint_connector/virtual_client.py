@@ -21,14 +21,20 @@ import imageio.v3 as iio
 
 import psutil
 
-from simplyprint_ws_client.client.client import Client, ClientConfigChangedEvent, DefaultClient
-from simplyprint_ws_client.client.config import PrinterConfig
-from simplyprint_ws_client.client.protocol import ClientEvents, Demands, Events
-from simplyprint_ws_client.client.state.printer import FileProgressState, PrinterFilamentSensorEnum, PrinterStatus
 from simplyprint_ws_client.const import VERSION as SP_VERSION
-from simplyprint_ws_client.helpers.file_download import FileDownload
-from simplyprint_ws_client.helpers.intervals import IntervalTypes
-from simplyprint_ws_client.helpers.physical_machine import PhysicalMachine
+from simplyprint_ws_client.core.client import ClientConfigChangedEvent, DefaultClient
+from simplyprint_ws_client.core.config import PrinterConfig
+from simplyprint_ws_client.core.state import FilamentSensorEnum, FileProgressStateEnum, PrinterStatus
+from simplyprint_ws_client.core.ws_protocol.messages import (
+    FileDemandData,
+    GcodeDemandData,
+    MeshDataMsg,
+    PrinterSettingsMsg,
+    StreamMsg,
+    WebcamSnapshotDemandData,
+)
+from simplyprint_ws_client.shared.files.file_download import FileDownload
+from simplyprint_ws_client.shared.hardware.physical_machine import PhysicalMachine
 
 from yarl import URL
 
@@ -190,6 +196,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def init(self) -> None:
         """Initialize the client."""
+        self.logger.info('Initializing the client')
+        self._is_stopped = False
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
         self.printer.info.core_count = psutil.cpu_count(logical=False)
@@ -206,22 +214,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         request = WebcamSnapshotRequest()
         await self._requested_webcam_snapshots.put(request)
 
-    @Client.connected.getter
-    def connected(self) -> bool:
-        """Check if the client is connected to the server."""
-        return self._connected
-
-    @connected.setter
-    def connected(self, value: bool):
-        # if value is False:
-        #     asyncio.run_coroutine_threadsafe(self.stop(), self.event_loop)
-        # else:
-        Client.connected.fset(self, value)
-
-    @Events.ConnectEvent.on
-    async def on_connect(self, event: Events.ConnectEvent) -> None:
+    async def on_connected(self, _) -> None:
         """Connect to Simplyprint.io."""
         self.logger.info('Connected to Simplyprint.io')
+
+        self.use_running_loop()
 
         await self._printer_status_task()
         await self._job_status_task()
@@ -229,16 +226,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         await self._mesh_compensation_status_task()
         await self._connector_status_task()
 
-    @Events.PrinterSettingsEvent.on
     async def on_printer_settings(
         self,
-        event: Events.PrinterSettingsEvent,
+        event: PrinterSettingsMsg,
     ) -> None:
         """Update the printer settings."""
         self.logger.debug("Printer settings: %s", event.data)
 
-    @Demands.GcodeEvent.on
-    async def on_gcode(self, event: Demands.GcodeEvent) -> None:
+    async def on_gcode(self, event: GcodeDemandData) -> None:
         """
         Receive GCode from SP and send GCode to duet.
 
@@ -328,7 +323,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
         # Ensure we send events to SimplyPrint
-        asyncio.run_coroutine_threadsafe(self.consume_state(), self.event_loop)
+        # asyncio.run_coroutine_threadsafe(self.consume(), self.event_loop)
 
     async def _auto_start_file(self, event) -> None:
         """Auto start the file after it has been uploaded."""
@@ -341,7 +336,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     name="0:/gcodes/{!s}".format(event.file_name),
                     timeout=aiohttp.ClientTimeout(total=10),
                 )
-            except TimeoutError:
+            except (
+                aiohttp.ClientConnectionError,
+                TimeoutError,
+                asyncio.exceptions.TimeoutError,
+                asyncio.TimeoutError,
+            ):
                 response = {'err': 1}  # timeout
 
             if response['err'] == 0:
@@ -351,10 +351,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
 
             # Ensure we send events to SimplyPrint
-            asyncio.run_coroutine_threadsafe(
-                self.consume_state(),
-                self.event_loop,
-            )
+            # asyncio.run_coroutine_threadsafe(
+            #     self.consume(),
+            #     self.event_loop,
+            # )
             await asyncio.sleep(1)
         else:
             raise TimeoutError('Timeout while waiting for file to be ready')
@@ -369,26 +369,24 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """
         Periodically send file upload progress updates.
 
-        This task ensures that file upload progress is sent every 10 seconds to prevent
+        This task ensures that file upload progress is sent every 5 seconds to prevent
         timeouts on clients with low bandwidth. The progress step between 0.5% can exceed
         the default timeout of 30 seconds, so frequent updates are necessary.
         """
-        while not self._is_stopped and self.printer.file_progress.state == FileProgressState.DOWNLOADING:
-            file_progress_event = self.printer.file_progress.get_field_event('percent')
-            if file_progress_event is not None:
-                self.printer.mark_event_as_dirty(file_progress_event)
-            await asyncio.sleep(10)
+        while not self._is_stopped and self.printer.file_progress.state == FileProgressStateEnum.DOWNLOADING:
+            self.printer.file_progress.model_set_changed("state", "percent")
+            await asyncio.sleep(5)
 
     @async_task
     @async_supress
     async def _download_file_from_sp_and_upload_to_duet(
         self,
-        event: Demands.FileEvent,
+        event: FileDemandData,
     ) -> None:
         """Download a file from Simplyprint.io and upload it to the printer."""
         downloader = FileDownload(self)
 
-        self.printer.file_progress.state = FileProgressState.DOWNLOADING
+        self.printer.file_progress.state = FileProgressStateEnum.DOWNLOADING
         self.printer.file_progress.percent = 0.0
 
         # Initiate the file progress task to send updates every 10 seconds.
@@ -417,7 +415,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         progress=self._upload_file_progress,
                     )
                     if response['err'] != 0:
-                        self.printer.file_progress.state = FileProgressState.ERROR
+                        self.printer.file_progress.state = FileProgressStateEnum.ERROR
                         return
                     break
                 except aiohttp.ClientResponseError as e:
@@ -433,14 +431,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self._auto_start_file(event)
 
         self.printer.file_progress.percent = 100.0
-        self.printer.file_progress.state = FileProgressState.READY
+        self.printer.file_progress.state = FileProgressStateEnum.READY
 
-    @Demands.FileEvent.on
-    async def on_file(self, event: Demands.FileEvent) -> None:
+    async def on_file(self, event: FileDemandData) -> None:
         """Download a file from Simplyprint.io to the printer."""
         await self._download_file_from_sp_and_upload_to_duet(event=event)
 
-    @Demands.StartPrintEvent.on
     async def on_start_print(self, _) -> None:
         """Start the print job."""
         await self.duet.rr_gcode(
@@ -448,18 +444,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
         await self.duet.rr_gcode('M24')
 
-    @Demands.PauseEvent.on
-    async def on_pause_event(self, _) -> None:
+    async def on_pause(self, _) -> None:
         """Pause the print job."""
         await self.duet.rr_gcode('M25')
 
-    @Demands.ResumeEvent.on
-    async def on_resume_event(self, _) -> None:
+    async def on_resume(self, _) -> None:
         """Resume the print job."""
         await self.duet.rr_gcode('M24')
 
-    @Demands.CancelEvent.on
-    async def on_cancel_event(self, _) -> None:
+    async def on_cancel(self, _) -> None:
         """Cancel the print job."""
         await self.duet.rr_gcode('M25')
         await self.duet.rr_gcode('M0')
@@ -470,7 +463,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             response = await self.duet.connect()
             self.logger.debug("Response from Duet: {!s}".format(response))
             self._printer_status = None
-        except (aiohttp.ClientConnectionError, TimeoutError) as e:
+        except (
+            aiohttp.ClientConnectionError,
+            TimeoutError,
+            asyncio.exceptions.TimeoutError,
+            asyncio.TimeoutError,
+        ) as e:
             self.printer.status = PrinterStatus.OFFLINE
             raise e
         except aiohttp.ClientError as e:
@@ -515,14 +513,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             printer_type = name_search.group(3)
             printer_name = name_search.group(5) or name_search.group(6) or ''
             printer_name = " ".join((printer_type.replace('-', ' '), printer_name)).strip()
-            self.printer.info.machine_name = f"Meltingplot {printer_name}"
+            self.printer.firmware.machine_name = f"Meltingplot {printer_name}"
         except (AttributeError, IndexError):
-            self.printer.info.machine_name = network['name']
+            self.printer.firmware.machine_name = network['name']
 
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
-        self.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
-        self.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
+        self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
+        self.printer.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
 
         self._duet_connected = True
 
@@ -593,6 +591,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             aiohttp.ClientConnectionError,
             TimeoutError,
             asyncio.exceptions.TimeoutError,
+            asyncio.TimeoutError,
         ):
             printer_status = None
         except Exception:
@@ -622,6 +621,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             aiohttp.ClientConnectionError,
             TimeoutError,
             asyncio.exceptions.TimeoutError,
+            asyncio.TimeoutError,
         ):
             response = return_on_timeout
         except Exception as e:
@@ -642,7 +642,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 if not self._duet_connected:
                     try:
                         await self._connect_to_duet()
-                    except Exception:
+                    except (
+                        aiohttp.ClientError,
+                        aiohttp.ClientConnectionError,
+                        TimeoutError,
+                        asyncio.exceptions.TimeoutError,
+                        asyncio.TimeoutError,
+                    ):
                         await asyncio.sleep(60)
                         continue
 
@@ -723,9 +729,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _update_cpu_and_memory_info(self) -> None:
         self.printer.cpu_info.usage = psutil.cpu_percent(interval=1)
         try:
-            self.printer.cpu_info.temperature = psutil.sensors_temperatures()['coretemp'][0].current
+            self.printer.cpu_info.temp = psutil.sensors_temperatures()['coretemp'][0].current
         except KeyError:
-            self.printer.cpu_info.temperature = 0.0
+            self.printer.cpu_info.temp = 0.0
         self.printer.cpu_info.memory = psutil.virtual_memory().percent
 
     @async_task
@@ -778,21 +784,21 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         for monitor in filament_monitors:
             if monitor['enableMode'] > 0:
-                self.printer.settings.has_filament_sensor = True
+                self.printer.settings.has_filament_settings = True
                 if monitor['status'] == 'ok':
-                    self.printer.filament_sensor.state = PrinterFilamentSensorEnum.LOADED
+                    self.printer.filament_sensor.state = FilamentSensorEnum.LOADED
                 else:
-                    self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                    self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                     break  # only one sensor is needed
 
                 try:
                     if monitor['calibrated'] is None or self.printer.status != PrinterStatus.PAUSED:
                         continue
                     if monitor['calibrated']['percentMin'] < monitor['configured']['percentMin']:
-                        self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                        self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                         break  # only one sensor is needed
                     if monitor['calibrated']['percentMax'] < monitor['configured']['percentMax']:
-                        self.printer.filament_sensor.state = PrinterFilamentSensorEnum.RUNOUT
+                        self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                         break  # only one sensor is needed
                 except KeyError:
                     pass
@@ -892,7 +898,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.printer.job_info.layer = job_status['layer'] if 'layer' in job_status else 0
 
-    async def tick(self) -> None:
+    async def tick(self, _) -> None:
         """Update the client state."""
         try:
             await self.send_ping()
@@ -902,28 +908,31 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 exc_info=e,
             )
 
-    async def stop(self) -> None:
-        """Stop the client."""
-        self.logger.debug('Stopping client')
+    async def halt(self) -> None:
+        """Halt the client."""
+        self.logger.debug('halting the client')
         self._is_stopped = True
         for task in self._background_task:
             task.cancel()
         await self.duet.close()
 
-    @Demands.WebcamTestEvent.on
-    async def on_webcam_test(self, event: Demands.WebcamTestEvent) -> None:
+    async def teardown(self) -> None:
+        """Teardown the client."""
+        pass
+
+    async def on_webcam_test(self) -> None:
         """Test the webcam."""
         self.printer.webcam_info.connected = (True if self.config.webcam_uri is not None else False)
 
     async def _send_webcam_snapshot(self, image: bytes) -> None:
         jpg_encoded = image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
-        await self.send_event(
-            ClientEvents.StreamEvent(data={"base": base64_encoded}),
+        await self.send(
+            StreamMsg(base64jpg=base64_encoded),
         )
 
     async def _send_webcam_snapshot_to_endpoint(self, image: bytes, request: WebcamSnapshotRequest) -> None:
-        import simplyprint_ws_client.helpers.simplyprint_api as sp_api
+        import simplyprint_ws_client.shared.sp.simplyprint_api as sp_api
 
         self.logger.info(f'Sending webcam snapshot to endpoint: {request.endpoint}')
         await sp_api.SimplyPrintApi.post_snapshot(
@@ -969,19 +978,18 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     if request.endpoint is not None:
                         await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
                         continue
-                    if self.intervals.is_ready(IntervalTypes.WEBCAM):
+                    if self.printer.intervals.is_ready("webcam"):
                         await self._send_webcam_snapshot(image=image)
                     else:
                         await self._requested_webcam_snapshots.put(request)
             except Exception as e:
-                self.logger.debug("Failed to fetch webcam image: {}".format(e))
+                self.logger.debug(f"Failed to fetch webcam image: {e}")
                 await asyncio.sleep(10)
         self._webcam_task_handle = None
 
-    @Demands.WebcamSnapshotEvent.on
     async def on_webcam_snapshot(
         self,
-        event: Demands.WebcamSnapshotEvent,
+        event: WebcamSnapshotDemandData,
     ) -> None:
         """Take a snapshot from the webcam."""
         # From Javad
@@ -996,13 +1004,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         request = WebcamSnapshotRequest(snapshot_id=event.id, endpoint=event.endpoint)
         await self._requested_webcam_snapshots.put(request)
 
-    @Demands.StreamOffEvent.on
-    async def on_stream_off(self, event: Demands.StreamOffEvent) -> None:
+    async def on_stream_off(self) -> None:
         """Turn off the webcam stream."""
         pass
 
-    @Demands.ApiRestartEvent.on
-    async def on_api_restart(self, event: Demands.ApiRestartEvent) -> None:
+    async def on_api_restart(self) -> None:
         """Restart the API."""
         self.logger.info("Restarting API")
         # the api is running as a systemd service, so we can just restart the service
@@ -1098,6 +1104,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.logger.debug('Mesh data: {!s}'.format(data))
 
         # mesh data is matrix of y,x and z
-        await self.send_event(
-            ClientEvents.MeshDataEvent(data=data),
+        await self.send(
+            MeshDataMsg(data=data),
         )

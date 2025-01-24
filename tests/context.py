@@ -7,4 +7,4 @@ sys.path.insert(
 
 from meltingplot.duet_simplyprint_connector.duet.api import RepRapFirmware  # noqa
 from meltingplot.duet_simplyprint_connector.gcode import GCodeCommand, GCodeBlock  # noqa
-from meltingplot.duet_simplyprint_connector.virtual_client import VirtualClient, VirtualConfig, FileProgressState, Demands  # noqa
+from meltingplot.duet_simplyprint_connector.virtual_client import VirtualClient, VirtualConfig, FileProgressStateEnum  # noqa

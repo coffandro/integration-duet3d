@@ -4,13 +4,17 @@ import logging
 import socket
 from urllib.parse import urlparse
 
+import PIL  # noqa
+
 import click
 
-from simplyprint_ws_client.cli import ClientCli
-from simplyprint_ws_client.client import ClientApp, ClientMode, ClientOptions
-from simplyprint_ws_client.client.config import ConfigManagerType
-from simplyprint_ws_client.client.logging import ClientHandler
-from simplyprint_ws_client.helpers.url_builder import SimplyPrintBackend
+from simplyprint_ws_client.core.app import ClientApp
+from simplyprint_ws_client.core.config import ConfigManagerType
+from simplyprint_ws_client.core.settings import ClientSettings
+from simplyprint_ws_client.core.ws_protocol.connection import ConnectionMode
+from simplyprint_ws_client.shared.cli.cli import ClientCli
+from simplyprint_ws_client.shared.logging import ClientHandler
+from simplyprint_ws_client.shared.sp.url_builder import SimplyPrintBackend
 
 from . import __version__
 from .cli.autodiscover import AutoDiscover
@@ -56,27 +60,22 @@ def run_app(autodiscover, app):
 
 def main():
     """Initiate the connector as the main entry point."""
-    client_options = ClientOptions(
+    settings = ClientSettings(
         name="DuetConnector",
         version=__version__,
-        mode=ClientMode.MULTI_PRINTER,
-        client_t=VirtualClient,
-        config_t=VirtualConfig,
+        mode=ConnectionMode.MULTI,
+        client_factory=VirtualClient,
+        config_factory=VirtualConfig,
         allow_setup=True,
-        config_manager_type=ConfigManagerType.JSON,
+        config_manager_t=ConfigManagerType.JSON,
         backend=SimplyPrintBackend.PRODUCTION,
     )
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] %(levelname)s %(name)s.%(funcName)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            ClientHandler.root_handler(client_options),
-        ],
-    )
+    ClientHandler.setup_logging(settings)
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger("PIL").setLevel(logging.INFO)
 
-    app = ClientApp(client_options)
+    app = ClientApp(settings)
     cli = ClientCli(app)
 
     autodiscover = AutoDiscover(app)

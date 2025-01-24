@@ -24,7 +24,7 @@ import aiohttp
 
 import click
 
-from simplyprint_ws_client.client import ClientApp
+from simplyprint_ws_client.core.app import ClientApp
 
 from ..duet.api import RepRapFirmware
 from ..network import get_local_ip_and_mac
