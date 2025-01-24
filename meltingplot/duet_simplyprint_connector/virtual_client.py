@@ -188,8 +188,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._compensation = None
 
         self._webcam_timeout = 0
-        self._webcam_task_handle = None
+        self._webcam_distribution_task_handle = None
         self._requested_webcam_snapshots = asyncio.Queue()
+        self._webcam_frame = asyncio.Queue(maxsize=3)
 
         self._background_task = set()
         self._is_stopped = False
@@ -935,13 +936,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     async def _fetch_webcam_image(self) -> bytes:
-        headers = {"Accept": "image/jpeg"}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-            async with session.get(
-                url=self.config.webcam_uri,
-                headers=headers,
-            ) as r:
-                raw_data = await r.read()
+        try:
+            raw_data = await asyncio.wait_for(self._webcam_frame.get(), timeout=60)
+        except asyncio.TimeoutError:
+            self.logger.debug("Timeout while fetching webcam image")
+            return None
 
         img = iio.imread(
             uri=raw_data,
@@ -959,10 +958,57 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         return jpg_encoded
 
+    async def _handle_multipart_content(self, response: aiohttp.ClientResponse) -> bytes:
+        reader = aiohttp.MultipartReader.from_response(response)
+        async for part in reader:
+            if part.headers[aiohttp.hdrs.CONTENT_TYPE] != 'image/jpeg':
+                continue
+            content = await part.read()
+            if self._webcam_frame.full():
+                await self._webcam_frame.get()
+            await self._webcam_frame.put(memoryview(content).tobytes())
+
+    async def _handle_image_content(self, response: aiohttp.ClientResponse) -> bytes:
+        content = await response.read()
+        if self._webcam_frame.full():
+            await self._webcam_frame.get()
+        await self._webcam_frame.put(memoryview(content).tobytes())
+
     @async_task
-    async def _webcam_task(self) -> None:
-        self.logger.debug('Webcam task started')
-        while time.time() < self._webcam_timeout:
+    async def _webcam_receive_task(self) -> None:
+        self.logger.debug('Webcam receive task started')
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(
+                total=0,  # Disable total timeout
+                connect=30,
+                sock_read=0,
+                sock_connect=30,
+                ),
+        ) as session:
+            while self._webcam_distribution_task_handle is not None:
+                try:
+                    async with session.get(self.config.webcam_uri) as response:
+                        if response.headers['Content-Type'] == 'image/jpeg':
+                            await self._handle_image_content(response)
+                        elif 'multipart' in response.headers['Content-Type'].lower():
+                            await self._handle_multipart_content(response)
+                        else:
+                            self.logger.debug(
+                                'Unsupported content type: {!s}'.format(response.headers['Content-Type']),
+                            )
+                except (aiohttp.ClientError, asyncio.TimeoutError):
+                    self.logger.debug('Failed to fetch webcam image')
+                    await asyncio.sleep(10)
+
+    @async_task
+    async def _webcam_distribution_task(self) -> None:
+        self.logger.debug('Webcam distribution task started')
+
+        # Start the webcam receive task
+        await self._webcam_receive_task()
+
+        while not self._is_stopped and time.time() < self._webcam_timeout:
             try:
                 image = await self._fetch_webcam_image()
 
@@ -975,10 +1021,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         await self._send_webcam_snapshot(image=image)
                     else:
                         await self._requested_webcam_snapshots.put(request)
-            except Exception as e:
-                self.logger.debug(f"Failed to fetch webcam image: {e}")
+            except Exception:
+                self.logger.exception("Failed to distribute webcam image")
                 await asyncio.sleep(10)
-        self._webcam_task_handle = None
+        self._webcam_distribution_task_handle = None
 
     async def on_webcam_snapshot(
         self,
@@ -991,8 +1037,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # `SimplyPrintApi.post_snapshot` you can call if you want to implement job state images.
 
         self._webcam_timeout = time.time() + 60
-        if self._webcam_task_handle is None and self.config.webcam_uri is not None:
-            self._webcam_task_handle = await self._webcam_task()
+        if self._webcam_distribution_task_handle is None and self.config.webcam_uri is not None:
+            self._webcam_distribution_task_handle = await self._webcam_distribution_task()
 
         request = WebcamSnapshotRequest(snapshot_id=event.id, endpoint=event.endpoint)
         await self._requested_webcam_snapshots.put(request)
