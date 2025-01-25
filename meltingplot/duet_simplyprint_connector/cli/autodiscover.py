@@ -18,7 +18,10 @@ Functions:
         Autodiscover devices in the specified IP range using the provided password.
 """
 import asyncio
+import io
 import ipaddress
+import json
+import urllib.parse
 
 import aiohttp
 
@@ -39,10 +42,65 @@ def convert_cidr_to_list(ip_range) -> list:
         return None
 
 
-async def connect_to_duet(ip_address, password):
+async def download_dwc_file(duet: RepRapFirmware) -> dict:
+    """Download the DWC settings file from the Duet."""
+    content = io.BytesIO()
+    async for chunk in duet.rr_download(filepath='0:/sys/dwc-settings.json'):
+        content.write(chunk)
+    content.seek(0)
+    response = json.load(content)
+    return response
+
+
+async def get_webcam_url(duet: RepRapFirmware) -> str:
+    """Sanitize the webcam URL."""
+    dwc_settings = await download_dwc_file(duet)
+
+    if dwc_settings is None:
+        return None
+
+    try:
+        webcam_url = dwc_settings['main']['webcam']['url']
+    except KeyError:
+        return None
+
+    webcam_url_parse = urllib.parse.urlparse(webcam_url)
+    schema = webcam_url_parse.scheme
+    hostname = webcam_url_parse.netloc
+
+    if hostname == '[HOSTNAME]' or hostname == '':
+        duet_url_parse = urllib.parse.urlparse(duet.address)
+        hostname = duet_url_parse.netloc if duet_url_parse.netloc != '' else duet_url_parse.geturl()
+        schema = duet_url_parse.scheme
+
+    if schema == '':
+        schema = 'http'
+
+    webcam_url = urllib.parse.urlunparse((schema, hostname, webcam_url_parse.path, '', '', ''))
+
+    return webcam_url
+
+
+async def get_cookie(duet: RepRapFirmware) -> str:
+    """Get the connector cookie."""
+    content = io.BytesIO()
+    async for chunk in duet.rr_download(filepath='0:/sys/simplyprint-connector.json'):
+        content.write(chunk)
+    content.seek(0)
+    return json.load(content)
+
+
+def senertize_url(url: str) -> str:
+    """Sanitize the URL."""
+    if url.startswith('http://') or url.startswith('https://'):
+        return url
+    return f'http://{url}'
+
+
+async def connect_to_duet(address: str, password: str) -> dict:
     """Connect to a printer using the specified IP address and password."""
     duet = RepRapFirmware(
-        address=ip_address,
+        address=senertize_url(address),
         password=password,
     )
 
@@ -52,6 +110,11 @@ async def connect_to_duet(ip_address, password):
         board = board['result']
         duet_name = await duet.rr_model(key='network.name')
         duet_name = duet_name['result']
+        webcam_uri = await get_webcam_url(duet)
+        try:
+            cookie = await get_cookie(duet)
+        except aiohttp.client_exceptions.ClientResponseError:
+            cookie = None
     except (
         aiohttp.client_exceptions.ClientConnectorError,
         aiohttp.ClientError,
@@ -66,17 +129,23 @@ async def connect_to_duet(ip_address, password):
 
     return {
         'duet_name': f"{duet_name}",
-        'duet_uri': f'{ip_address}',
+        'duet_uri': senertize_url(f'{address}'),
         'duet_password': password,
         'duet_unique_id': f"{board['uniqueId']}",
+        'webcam_uri': senertize_url(webcam_uri),
+        'cookie': cookie,
     }
 
 
-async def connect_to_range(password, ipv4_range, ipv6_range):
+async def connect_to_range(
+    password: str,
+    ipv4_range: ipaddress.IPv4Network,
+    ipv6_range: ipaddress.IPv6Network,
+) -> list:
     """Connect to all devices within the specified IP ranges."""
     tasks = []
     for ipv4 in ipv4_range:
-        tasks.append(connect_to_duet(ipv4, password))
+        tasks.append(connect_to_duet(f"{ipv4}", password))
     for ipv6 in ipv6_range:
         tasks.append(connect_to_duet(f"[{ipv6}]", password))
 
@@ -157,15 +226,23 @@ class AutoDiscover():
                 self.app.logger.info(f'Found existing config for {config.duet_unique_id}. Updating.')
 
                 config.duet_uri = clients[config.duet_unique_id]['duet_uri']
+                config.webcam_uri = clients[config.duet_unique_id]['webcam_uri']
                 clients.pop(config.duet_unique_id, None)
 
         for client in clients.values():
-            self.app.logger.info(f'Adding new config for {client["duet_name"]} - {client["duet_unique_id"]}')
+            if client['cookie'] is not None:
+                self.app.logger.info(
+                    f"Skip adding new config for {client['duet_name']} - {client['duet_unique_id']}"
+                    f" as it already has a cookie set under 0:/sys/simplyprint-connector.json",
+                )
+                continue
+            self.app.logger.info(f"Adding new config for {client['duet_name']} - {client['duet_unique_id']}")
             config = self.app.config_manager.config_t.get_new()
             config.duet_name = client['duet_name']
             config.duet_uri = client['duet_uri']
             config.duet_password = client['duet_password']
             config.duet_unique_id = client['duet_unique_id']
+            config.webcam_uri = client['webcam_uri']
             config.in_setup = True
             self.app.config_manager.persist(config)
 
