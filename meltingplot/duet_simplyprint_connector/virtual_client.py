@@ -635,7 +635,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self.duet.rr_delete(filepath='0:/sys/simplyprint-connector.json')
         except aiohttp.client_exceptions.ClientResponseError:
             self.logger.debug('Cookie not set, setting cookie')
-            
+
         await self.duet.rr_upload_stream(
             filepath='0:/sys/simplyprint-connector.json',
             file=io.BytesIO(
