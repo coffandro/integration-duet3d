@@ -176,6 +176,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         super().__init__(*args, **kwargs)
 
+    async def init(self) -> None:
+        """Initialize the client."""
+        self.logger.info('Initializing the client')
+
         self.duet = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
@@ -196,9 +200,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task = set()
         self._is_stopped = False
 
-    async def init(self) -> None:
-        """Initialize the client."""
-        self.logger.info('Initializing the client')
         self._is_stopped = False
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 

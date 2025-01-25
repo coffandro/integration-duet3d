@@ -40,6 +40,7 @@ async def test_download_and_upload_file_progress_calculation(virtual_client):
     event.auto_start = True
 
     mock_duet = AsyncMock()
+    await virtual_client.init()
     virtual_client.duet = mock_duet
     virtual_client.on_start_print = Mock()
     asyncio.run_coroutine_threadsafe = Mock()
@@ -151,6 +152,7 @@ async def test_fetch_rr_model_success(virtual_client):
     key = "job"
     expected_response = {"result": {"file": {"filename": "test.gcode"}}}
 
+    await virtual_client.init()
     virtual_client.duet.rr_model = AsyncMock(return_value=expected_response)
 
     response = await virtual_client._fetch_rr_model(key=key)
@@ -165,6 +167,7 @@ async def test_fetch_rr_model_client_connection_error(virtual_client):
     key = "job"
     return_on_timeout = {"timeout": True}
 
+    await virtual_client.init()
     virtual_client.duet.rr_model = AsyncMock(side_effect=aiohttp.ClientConnectionError)
 
     response = await virtual_client._fetch_rr_model(key=key, return_on_timeout=return_on_timeout)
@@ -179,6 +182,7 @@ async def test_fetch_rr_model_timeout_error(virtual_client):
     key = "job"
     return_on_timeout = {"timeout": True}
 
+    await virtual_client.init()
     virtual_client.duet.rr_model = AsyncMock(side_effect=TimeoutError)
 
     response = await virtual_client._fetch_rr_model(key=key, return_on_timeout=return_on_timeout)
@@ -193,6 +197,7 @@ async def test_fetch_rr_model_other_exception(virtual_client):
     key = "job"
     return_on_exception = {"exception": True}
 
+    await virtual_client.init()
     virtual_client.duet.rr_model = AsyncMock(side_effect=Exception("Test Exception"))
 
     response = await virtual_client._fetch_rr_model(key=key, return_on_exception=return_on_exception)
@@ -227,6 +232,7 @@ async def test_connect_to_duet_success(virtual_client):
 async def test_connect_to_duet_unique_id_mismatch(virtual_client):
     """Test connection to the Duet board with unique ID mismatch."""
     mock_duet = AsyncMock()
+    await virtual_client.init()
     virtual_client.duet = mock_duet
     virtual_client.config.duet_unique_id = "WRONG-UNIQUE-ID"
     mock_duet.connect.return_value = {"status": "connected"}

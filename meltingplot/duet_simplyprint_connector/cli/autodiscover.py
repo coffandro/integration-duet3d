@@ -225,7 +225,7 @@ class AutoDiscover():
             if config.duet_unique_id in clients:
                 self.app.logger.info(f'Found existing config for {config.duet_unique_id}. Updating.')
 
-                config.duet_uri = clients[config.duet_unique_id]['duet_uri']
+                config.duet_uri = senertize_url(clients[config.duet_unique_id]['duet_uri'])
                 config.webcam_uri = clients[config.duet_unique_id]['webcam_uri']
                 clients.pop(config.duet_unique_id, None)
 
@@ -245,5 +245,6 @@ class AutoDiscover():
             config.webcam_uri = client['webcam_uri']
             config.in_setup = True
             self.app.config_manager.persist(config)
+            self.app.add(config)
 
         self.app.config_manager.flush()
