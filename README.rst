@@ -25,10 +25,12 @@ Supported features:
 - Bed leveling
 - Filament Sensor
 - Duet auto discovery with tracking based on BoardID
+- Leave a cookie on the printer to identify the printer in the future (`0:/sys/simplyprint-connector.json`)
+- Grab the webcam url from DWC Settings file from the Printer
+- Allow Webcam URL to be an Snapshot Endpoint or MJPEG Stream
 
 Missing features:
 
-- Leave a cookie on the printer to identify the printer in the future
 - PSU Control
 - GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
 - GCode terminal [not yet implemented by Simplyprint.io for Duet]
@@ -50,10 +52,6 @@ Installation
     pip install --upgrade pip setuptools wheel
     pip install meltingplot.duet_simplyprint_connector
     simplyprint autodiscover --password=reprap --ipv4-range=192.168.1.0/24 --ipv6-range=::1/128
-    
-    # optional - add webcam snapshot uri
-    vi ~/.config/SimplyPrint/DuetConnector.json
-    
     simplyprint install-as-service
 
 -----------------------------
