@@ -200,7 +200,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task = set()
         self._is_stopped = False
 
-        self._is_stopped = False
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
         self.printer.info.core_count = psutil.cpu_count(logical=False)
@@ -222,12 +221,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.logger.info('Connected to Simplyprint.io')
 
         self.use_running_loop()
+        self._is_stopped = False
 
         await self._printer_status_task()
         await self._job_status_task()
         await self._filament_monitors_task()
         await self._mesh_compensation_status_task()
         await self._connector_status_task()
+
+    async def on_remove_connection(self, _) -> None:
+        """Remove the connection."""
+        self.logger.info('Disconnected from Simplyprint.io')
+        self._is_stopped = True
+        for task in self._background_task:
+            task.cancel()
 
     async def on_printer_settings(
         self,
