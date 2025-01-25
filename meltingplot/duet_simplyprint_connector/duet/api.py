@@ -59,7 +59,7 @@ def reauthenticate(retries=3):
 class RepRapFirmware():
     """RepRapFirmware API Class."""
 
-    address = attr.ib(type=str, default="10.42.0.2")
+    address = attr.ib(type=str, default="http://10.42.0.2")
     password = attr.ib(type=str, default="meltingplot")
     session_timeout = attr.ib(type=int, default=8000)
     http_timeout = attr.ib(type=int, default=15)
@@ -67,6 +67,11 @@ class RepRapFirmware():
     session = attr.ib(type=aiohttp.ClientSession, default=None)
     logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
     _reconnect_lock = attr.ib(type=asyncio.Lock, factory=asyncio.Lock)
+
+    @address.validator
+    def _validate_address(self, attribute, value):
+        if not value.startswith('http://') and not value.startswith('https://'):
+            raise ValueError('Address must start with http:// or https://')
 
     async def connect(self) -> dict:
         """Connect to the Duet."""
@@ -81,7 +86,7 @@ class RepRapFirmware():
                 return {'err': 0}
 
         async with self._reconnect_lock:
-            url = 'http://{0}/rr_connect'.format(self.address)
+            url = '{0}/rr_connect'.format(self.address)
 
             params = {
                 'password': self.password,
@@ -124,7 +129,7 @@ class RepRapFirmware():
         if self.session is None:
             return None
 
-        url = 'http://{0}/rr_disconnect'.format(self.address)
+        url = '{0}/rr_disconnect'.format(self.address)
 
         response = {}
         async with self.session.get(url) as r:
@@ -146,7 +151,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_model'.format(self.address)
+        url = '{0}/rr_model'.format(self.address)
 
         flags = []
 
@@ -180,7 +185,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_gcode'.format(self.address)
+        url = '{0}/rr_gcode'.format(self.address)
 
         params = {
             'gcode': gcode,
@@ -197,7 +202,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_reply'.format(self.address)
+        url = '{0}/rr_reply'.format(self.address)
 
         response = ''
         async with self.session.get(url) as r:
@@ -213,7 +218,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_download'.format(self.address)
+        url = '{0}/rr_download'.format(self.address)
 
         params = {
             'name': filepath,
@@ -234,7 +239,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_upload'.format(self.address)
+        url = '{0}/rr_upload'.format(self.address)
 
         params = {
             'name': filepath,
@@ -267,7 +272,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_upload'.format(self.address)
+        url = '{0}/rr_upload'.format(self.address)
 
         params = {
             'name': filepath,
@@ -331,7 +336,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_filelist'.format(self.address)
+        url = '{0}/rr_filelist'.format(self.address)
 
         params = {
             'dir': directory,
@@ -360,7 +365,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_fileinfo'.format(self.address)
+        url = '{0}/rr_fileinfo'.format(self.address)
 
         params = {}
 
@@ -387,7 +392,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_mkdir'.format(self.address)
+        url = '{0}/rr_mkdir'.format(self.address)
 
         params = {
             'dir': directory,
@@ -422,7 +427,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_move'.format(self.address)
+        url = '{0}/rr_move'.format(self.address)
 
         params = {
             'old': old_filepath,
@@ -450,7 +455,7 @@ class RepRapFirmware():
         if self.session is None:
             await self.reconnect()
 
-        url = 'http://{0}/rr_delete'.format(self.address)
+        url = '{0}/rr_delete'.format(self.address)
 
         params = {
             'name': filepath,
