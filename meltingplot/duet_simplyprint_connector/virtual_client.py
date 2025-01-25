@@ -4,6 +4,7 @@ import asyncio
 import base64
 import csv
 import io
+import json
 import pathlib
 import platform
 import re
@@ -497,16 +498,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 # TODO: Implement a search mechanism based on the unique ID
                 raise ValueError('Unique ID mismatch')
 
-        # the format of the machine_name should be [PRINTER MODEL] [PRINTER NAME]
+        # the format of the machine_name should be [MANUFACTURER] [PRINTER MODEL]
         name_search = re.search(
             r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?',
             network['name'],
             re.I,
         )
         try:
-            printer_type = name_search.group(3)
-            printer_name = name_search.group(5) or name_search.group(6) or ''
-            printer_name = " ".join((printer_type.replace('-', ' '), printer_name)).strip()
+            printer_name = name_search.group(3).replace('-', ' ').strip()
             self.printer.firmware.machine_name = f"Meltingplot {printer_name}"
         except (AttributeError, IndexError):
             self.printer.firmware.machine_name = network['name']
@@ -627,6 +626,29 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             response = return_on_exception
         return response
 
+    async def _check_and_set_cookie(self) -> None:
+        """Check if the cookie is set and set it if it is not."""
+        self.logger.debug('Checking if cookie is set')
+        try:
+            async for chunk in self.duet.rr_download(filepath='0:/sys/simplyprint-connector.json'):
+                break
+            await self.duet.rr_delete(filepath='0:/sys/simplyprint-connector.json')
+        except aiohttp.client_exceptions.ClientResponseError:
+            self.logger.debug('Cookie not set, setting cookie')
+            
+        await self.duet.rr_upload_stream(
+            filepath='0:/sys/simplyprint-connector.json',
+            file=io.BytesIO(
+                json.dumps(
+                    {
+                        'hostname': self.printer.info.hostname,
+                        'ip': self.printer.info.local_ip,
+                        'mac': self.printer.info.mac,
+                    },
+                ).encode(),
+            ),
+        )
+
     @async_task
     async def _printer_status_task(self) -> None:
         """Task to check for printer status changes and send printer data to SimplyPrint."""
@@ -650,6 +672,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         await self.duet.rr_gcode(
                             f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
                         )
+                    else:
+                        await self._check_and_set_cookie()
 
                 fetch_full_status = False
                 if time.time() > next_full_status:
