@@ -1018,7 +1018,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 sock_connect=30,
                 ),
         ) as session:
-            while self._webcam_distribution_task_handle is not None:
+            while not self._is_stopped and self._webcam_distribution_task_handle is not None:
                 try:
                     async with session.get(self.config.webcam_uri) as response:
                         if response.headers['Content-Type'] == 'image/jpeg':
@@ -1068,7 +1068,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # in which case a request to a HTTP endpoint can be sent, the library implements
         # `SimplyPrintApi.post_snapshot` you can call if you want to implement job state images.
 
-        self._webcam_timeout = time.time() + 60
+        self._webcam_timeout = time.time() + 10
         if self._webcam_distribution_task_handle is None and self.config.webcam_uri is not None:
             self._webcam_distribution_task_handle = await self._webcam_distribution_task()
 
