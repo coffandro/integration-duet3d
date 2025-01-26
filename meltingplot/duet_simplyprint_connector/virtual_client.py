@@ -960,11 +960,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _send_webcam_snapshot_to_endpoint(self, image: bytes, request: WebcamSnapshotRequest) -> None:
         import simplyprint_ws_client.shared.sp.simplyprint_api as sp_api
 
-        self.logger.info(f'Sending webcam snapshot to endpoint: {request.endpoint}')
+        self.logger.info(
+            f'Sending webcam snapshot id: {request.snapshot_id} endpoint: {request.endpoint or "Simplyprint"}',
+        )
         await sp_api.SimplyPrintApi.post_snapshot(
-            endpoint=request.endpoint,
-            image_data=image,
             snapshot_id=request.snapshot_id,
+            image_data=image,
+            endpoint=request.endpoint,
         )
 
     async def _fetch_webcam_image(self) -> bytes:
@@ -1046,13 +1048,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
                 if self._requested_webcam_snapshots.qsize() > 0:
                     request = await self._requested_webcam_snapshots.get()
-                    if request.endpoint is not None:
+                    if request.snapshot_id is not None:
                         await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
                         continue
                     if self.printer.intervals.is_ready("webcam"):
                         await self._send_webcam_snapshot(image=image)
                     else:
                         await self._requested_webcam_snapshots.put(request)
+                # else drop the frame and grab the next one
             except Exception:
                 self.logger.exception("Failed to distribute webcam image")
                 await asyncio.sleep(10)
