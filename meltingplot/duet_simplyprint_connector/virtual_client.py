@@ -1000,13 +1000,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             content = await part.read()
             if self._webcam_frame.full():
                 await self._webcam_frame.get()
-            await self._webcam_frame.put(memoryview(content).tobytes())
+            await self._webcam_frame.put(memoryview(content))
 
     async def _handle_image_content(self, response: aiohttp.ClientResponse) -> bytes:
         content = await response.read()
         if self._webcam_frame.full():
             await self._webcam_frame.get()
-        await self._webcam_frame.put(memoryview(content).tobytes())
+        await self._webcam_frame.put(memoryview(content))
 
     @async_task
     async def _webcam_receive_task(self) -> None:
