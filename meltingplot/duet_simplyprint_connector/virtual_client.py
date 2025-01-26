@@ -1004,6 +1004,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             if self._is_stopped or self._webcam_distribution_task_handle is None:
                 break
+            # max framerate of SP is 2fps
+            await asyncio.sleep(1 / 4)
 
     async def _handle_image_content(self, response: aiohttp.ClientResponse) -> None:
         content = await response.read()
