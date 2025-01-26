@@ -71,11 +71,11 @@ The default password for the Duet is `reprap`, even if the web interface does no
             "short_id": null,
             "public_ip": null,
             "unique_id": "...",
-            "duet_uri": "IP_OF_YOUR_DUET",
+            "duet_uri": "http://192.168.1.0",
             "duet_password": "reprap",
             "duet_unique_id": "YOUR_DUET_BOARD_ID",
             "duet_name": "YOUR_DUET_NAME",
-            "webcam_uri": "http://URI_OF_WEBCAM_SNAPSHOT_ENDPOINT/snapshot"
+            "webcam_uri": "http://URI_OF_WEBCAM_SNAPSHOT_ENDPOINT/webcam"
         }
     ]
 
