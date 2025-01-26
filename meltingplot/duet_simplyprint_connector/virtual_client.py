@@ -992,7 +992,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         return jpg_encoded
 
-    async def _handle_multipart_content(self, response: aiohttp.ClientResponse) -> bytes:
+    async def _handle_multipart_content(self, response: aiohttp.ClientResponse) -> None:
         reader = aiohttp.MultipartReader.from_response(response)
         async for part in reader:
             if part.headers[aiohttp.hdrs.CONTENT_TYPE] != 'image/jpeg':
@@ -1002,7 +1002,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await self._webcam_frame.get()
             await self._webcam_frame.put(memoryview(content))
 
-    async def _handle_image_content(self, response: aiohttp.ClientResponse) -> bytes:
+            if self._is_stopped or self._webcam_distribution_task_handle is None:
+                break
+
+    async def _handle_image_content(self, response: aiohttp.ClientResponse) -> None:
         content = await response.read()
         if self._webcam_frame.full():
             await self._webcam_frame.get()
