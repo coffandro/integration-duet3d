@@ -953,6 +953,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _send_webcam_snapshot(self, image: bytes) -> None:
         jpg_encoded = image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
+        while self.printer.intervals.use('webcam') is False:
+            await self.printer.intervals.wait_for('webcam')
+
         await self.send(
             StreamMsg(base64jpg=base64_encoded),
         )
