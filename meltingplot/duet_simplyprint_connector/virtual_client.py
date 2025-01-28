@@ -553,6 +553,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             *args,
             **kwargs,
         )
+
+        # TODO: remove when duet fixed this
+        # internal duet server is buffering the replay for every connected client
+        # so we need to fetch the response to free the buffer even if we don't need the response
+        await self.duet.rr_reply()
         return response
 
     async def _fetch_full_status(self) -> dict:
@@ -571,6 +576,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 frequently=False,
             )
             full_status[key] = response['result']
+            # give RRF time to free buffers
+            await asyncio.sleep(1)
 
         full_status = {'result': full_status}
         return full_status
@@ -953,6 +960,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _send_webcam_snapshot(self, image: bytes) -> None:
         jpg_encoded = image
         base64_encoded = base64.b64encode(jpg_encoded).decode()
+        # TODO: remove when fixed in simplyprint-ws-client
         while self.printer.intervals.use('webcam') is False:
             await self.printer.intervals.wait_for('webcam')
 

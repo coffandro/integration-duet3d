@@ -67,6 +67,8 @@ class RepRapFirmware():
     session = attr.ib(type=aiohttp.ClientSession, default=None)
     logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
     _reconnect_lock = attr.ib(type=asyncio.Lock, factory=asyncio.Lock)
+    _last_reply = attr.ib(type=str, default='')
+    _last_reply_timeout = attr.ib(type=datetime.datetime, default=datetime.datetime.now)
 
     @address.validator
     def _validate_address(self, attribute, value):
@@ -207,6 +209,11 @@ class RepRapFirmware():
         response = ''
         async with self.session.get(url) as r:
             response = await r.text()
+
+        if response == '' and datetime.datetime.now() < self._last_reply_timeout:
+            return self._last_reply
+        self._last_reply = response
+        self._last_reply_timeout = datetime.datetime.now() + datetime.timedelta(seconds=10)
         return response
 
     async def rr_download(
