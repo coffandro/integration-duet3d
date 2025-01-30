@@ -68,7 +68,7 @@ class RepRapFirmware():
     logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
     _reconnect_lock = attr.ib(type=asyncio.Lock, factory=asyncio.Lock)
     _last_reply = attr.ib(type=str, default='')
-    _last_reply_timeout = attr.ib(type=datetime.datetime, default=datetime.datetime.now)
+    _last_reply_timeout = attr.ib(type=datetime.datetime, factory=datetime.datetime.now)
 
     @address.validator
     def _validate_address(self, attribute, value):

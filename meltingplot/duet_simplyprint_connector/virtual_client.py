@@ -574,6 +574,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 key=key,
                 depth=99,
                 frequently=False,
+                include_null=True,
             )
             full_status[key] = response['result']
             # give RRF time to free buffers
@@ -590,6 +591,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 partial_status = await self._fetch_partial_status(
                     key='',
                     frequently=True,
+                    include_null=True,
                     depth=99,
                 )
 
