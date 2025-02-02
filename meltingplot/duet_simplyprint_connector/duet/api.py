@@ -144,7 +144,7 @@ class RepRapFirmware():
         response = {}
         async with self.session.get(url) as r:
             response = await r.json()
-        await self.session.close()
+        await self.close()
         return response
 
     @reauthenticate()
