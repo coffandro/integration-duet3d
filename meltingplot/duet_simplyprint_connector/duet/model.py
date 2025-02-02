@@ -141,13 +141,19 @@ class DuetPrinter():
         await self._wait_for_reply.wait()
         return self._reply
 
+    async def reply(self) -> str:
+        """Get the last reply from the printer."""
+        await self._wait_for_reply.wait()
+        await asyncio.sleep(0)  # Allow other tasks to process the event
+        return self._reply
+
     async def _handle_om_changes(self, changes: dict):
         """Handle object model changes."""
         if 'reply' in changes:
             self._reply = await self.api.rr_reply()
             self._wait_for_reply.set()
-            reply = self._reply.replace('\n', '\\n')
-            self.logger.debug(f"Reply: {changes['reply']} - {reply}")
+            await asyncio.sleep(0)  # Allow other tasks to process the event
+            self._wait_for_reply.clear()
         if 'volChanges' in changes:
             # TODO: handle volume changes
             changes.pop('volChanges')
@@ -197,6 +203,15 @@ class DuetPrinter():
                 break
             self._reply = reply
         self._wait_for_reply.set()
+        await asyncio.sleep(0)  # Allow other tasks to process the event
+        self._wait_for_reply.clear()
+
+
+async def printer_task(printer):
+    """Printer task."""
+    while True:
+        await printer.tick()
+        await asyncio.sleep(0.25)
 
 
 async def main():
@@ -212,9 +227,13 @@ async def main():
 
     printer = DuetPrinter(api=api)
 
+    asyncio.create_task(printer_task(printer))
+
     try:
         while True:
-            await printer.tick()
+            reply = await printer.reply()
+            reply = reply.replace('\n', '\\n')
+            logging.getLogger().debug(f"Reply: {reply}")
             await asyncio.sleep(0.25)
     except KeyboardInterrupt:
         pass
