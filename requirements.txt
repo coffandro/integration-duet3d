@@ -3,3 +3,5 @@ aiohttp
 attrs
 imageio[ffmpeg]
 psutil
+strenum
+pyee
