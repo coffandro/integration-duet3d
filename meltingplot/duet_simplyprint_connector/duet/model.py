@@ -216,7 +216,11 @@ async def printer_task(printer):
 
 async def main():
     """Execute the main function."""
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
     api = RepRapFirmware(
         address="http://192.168.172.75",
