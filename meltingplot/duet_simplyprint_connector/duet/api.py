@@ -23,14 +23,16 @@ def reauthenticate(retries=3):
             while status['retries']:
                 try:
                     return await f(*args, **kwargs)
-                except TimeoutError:
-                    args[0].logger.error('TimeoutError - retry')
+                except (TimeoutError, aiohttp.ClientPayloadError) as e:
+                    args[0].logger.error(f"{e} - retry")
                     status['retries'] -= 1
                     await asyncio.sleep(5**(retries - status['retries']))
                 except aiohttp.ClientResponseError as e:
                     status_code = e.status
                     status['retries'] -= 1
-                    if status_code == 401:
+                    if status_code in args[0].callbacks:
+                        await args[0].callbacks[status_code](e)
+                    elif status_code == 401:
                         args[0].logger.error(
                             'Unauthorized  while requesting {!s} - retry'.format(e.request_info),
                         )
@@ -38,12 +40,6 @@ def reauthenticate(retries=3):
                         response = await args[0].reconnect()
                         if response['err'] == 0:
                             status['retries'] = retries
-                    elif status_code == 503:
-                        # Besides, RepRapFirmware may run short on memory and
-                        # may not be able to respond properly. In this case,
-                        # HTTP status code 503 is returned.
-                        args[0].logger.error('Duet busy - retry')
-                        await asyncio.sleep(60)
                     else:
                         raise e
             raise TimeoutError(
@@ -66,9 +62,21 @@ class RepRapFirmware():
     http_retries = attr.ib(type=int, default=3)
     session = attr.ib(type=aiohttp.ClientSession, default=None)
     logger = attr.ib(type=logging.Logger, factory=logging.getLogger)
+    callbacks = attr.ib(type=dict, factory=dict)
     _reconnect_lock = attr.ib(type=asyncio.Lock, factory=asyncio.Lock)
     _last_reply = attr.ib(type=str, default='')
     _last_reply_timeout = attr.ib(type=datetime.datetime, factory=datetime.datetime.now)
+
+    def __attrs_post_init__(self):
+        """Post init."""
+        self.callbacks[503] = self._default_http_503_callback
+
+    async def _default_http_503_callback(self, e):
+        # Besides, RepRapFirmware may run short on memory and
+        # may not be able to respond properly. In this case,
+        # HTTP status code 503 is returned.
+        self.logger.error('Duet busy  {!s} - retry'.format(e.request_info))
+        await asyncio.sleep(5)
 
     @address.validator
     def _validate_address(self, attribute, value):
@@ -148,8 +156,15 @@ class RepRapFirmware():
         include_null: Optional[bool] = False,
         include_obsolete: Optional[bool] = False,
         depth: Optional[int] = 99,
+        array: Optional[int] = 0,
     ) -> dict:
         """rr_model Get Machine Model."""
+        self.logger.debug(
+            f"rr_model: key={key}, frequently={frequently},"
+            f" verbose={verbose}, include_null={include_null},"
+            f" include_obsolete={include_obsolete}, depth={depth}, array={array}",
+        )
+
         if self.session is None:
             await self.reconnect()
 
@@ -170,6 +185,7 @@ class RepRapFirmware():
             flags.append('o')
 
         flags.append('d{:d}'.format(depth))
+        flags.append('a{:d}'.format(array))
 
         params = {
             'key': key if key is not None else '',
@@ -182,7 +198,7 @@ class RepRapFirmware():
         return response
 
     @reauthenticate()
-    async def rr_gcode(self, gcode: str) -> str:
+    async def rr_gcode(self, gcode: str, no_reply: bool = False) -> str:
         """rr_gcode Send GCode to Duet."""
         if self.session is None:
             await self.reconnect()
@@ -196,10 +212,13 @@ class RepRapFirmware():
         async with self.session.get(url, params=params):
             pass
 
-        return await self.rr_reply()
+        if no_reply:
+            return ''
+        else:
+            return await self.rr_reply()
 
     @reauthenticate()
-    async def rr_reply(self) -> str:
+    async def rr_reply(self, nocache: bool = False) -> str:
         """rr_reply Get Reply from Duet."""
         if self.session is None:
             await self.reconnect()
@@ -210,9 +229,10 @@ class RepRapFirmware():
         async with self.session.get(url) as r:
             response = await r.text()
 
-        if response == '' and datetime.datetime.now() < self._last_reply_timeout:
+        if nocache is False and response == '' and datetime.datetime.now() < self._last_reply_timeout:
             return self._last_reply
-        self._last_reply = response
+        if nocache is False or response != '':  # Only cache if there is a new response
+            self._last_reply = response
         self._last_reply_timeout = datetime.datetime.now() + datetime.timedelta(seconds=10)
         return response
 
