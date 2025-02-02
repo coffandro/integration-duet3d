@@ -2,10 +2,15 @@
 
 import asyncio
 import logging
+from enum import auto
 
 import aiohttp
 
 from attr import define, field
+
+from pyee.asyncio import AsyncIOEventEmitter
+
+from strenum import CamelCaseStrEnum, StrEnum
 
 from .api import RepRapFirmware
 
@@ -49,36 +54,82 @@ def merge_dictionary(source, destination):
     return result
 
 
+class DuetModelEvents(StrEnum):
+    """Duet Model Events enum."""
+
+    state = auto()
+    objectmodel = auto()
+    connect = auto()
+    close = auto()
+
+
+class DuetState(CamelCaseStrEnum):
+    """Duet State enum."""
+
+    disconnected = auto()
+    starting = auto()
+    updating = auto()
+    off = auto()
+    halted = auto()
+    pausing = auto()
+    paused = auto()
+    resuming = auto()
+    cancelling = auto()
+    processing = auto()
+    simulating = auto()
+    busy = auto()
+    changing_tool = auto()
+    idle = auto()
+
+
 @define
 class DuetPrinter():
     """Duet Printer model class."""
 
+    state = field(type=DuetState, default=DuetState.disconnected)
     api = field(type=RepRapFirmware, factory=RepRapFirmware)
     om = field(type=dict, default=None)
-    seqs = field(type=dict, default=None)
+    seqs = field(type=dict, factory=dict)
     logger = field(type=logging.Logger, factory=logging.getLogger)
+    events = field(type=AsyncIOEventEmitter, factory=AsyncIOEventEmitter)
     _reply = field(type=str, default=None)
     _wait_for_reply = field(type=asyncio.Event, factory=asyncio.Event)
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         """Post init."""
         self.api.callbacks[503] = self.http_503_callback
 
-    async def close(self):
+    async def connect(self) -> None:
+        """Connect the printer."""
+        await self.api.connect()
+        self.events.emit(DuetModelEvents.connect)
+
+    async def close(self) -> None:
         """Close the printer."""
         await self.api.close()
+        self.events.emit(DuetModelEvents.close)
 
-    async def _fetch_partial_status(self, *args, **kwargs) -> dict:
-        response = await self.api.rr_model(
-            *args,
-            **kwargs,
+    def connected(self) -> bool:
+        """Check if the printer is connected."""
+        if self.api.session is None:
+            return False
+        return True
+
+    async def gcode(self, command: str) -> str:
+        """Send a GCode command to the printer."""
+        self._wait_for_reply.clear()
+        await self.api.rr_gcode(
+            command=command,
+            no_reply=True,
         )
+        await self._wait_for_reply.wait()
+        return self._reply
 
-        # TODO: remove when duet fixed this
-        # internal duet server is buffering the replay for every connected client
-        # so we need to fetch the response to free the buffer even if we don't need the response
-        # await self.duet.rr_reply()
-        return response
+    async def reply(self) -> str:
+        """Get the last reply from the printer."""
+        await self._wait_for_reply.wait()
+        await asyncio.sleep(0)  # Allow other tasks to process the event
+        return self._reply
 
     async def _fetch_objectmodel_recursive(self, *args, **kwargs) -> dict:
         """
@@ -131,22 +182,6 @@ class DuetPrinter():
 
         return response
 
-    async def gcode(self, command: str) -> str:
-        """Send a GCode command to the printer."""
-        self._wait_for_reply.clear()
-        await self.api.rr_gcode(
-            command=command,
-            no_reply=True,
-        )
-        await self._wait_for_reply.wait()
-        return self._reply
-
-    async def reply(self) -> str:
-        """Get the last reply from the printer."""
-        await self._wait_for_reply.wait()
-        await asyncio.sleep(0)  # Allow other tasks to process the event
-        return self._reply
-
     async def _handle_om_changes(self, changes: dict):
         """Handle object model changes."""
         if 'reply' in changes:
@@ -154,12 +189,13 @@ class DuetPrinter():
             self._wait_for_reply.set()
             await asyncio.sleep(0)  # Allow other tasks to process the event
             self._wait_for_reply.clear()
+            changes.pop('reply')
+
         if 'volChanges' in changes:
             # TODO: handle volume changes
             changes.pop('volChanges')
+
         for key in changes:
-            if key == 'reply':
-                continue
             changed_obj = await self._fetch_objectmodel_recursive(
                 key=key,
                 depth=2,
@@ -168,9 +204,12 @@ class DuetPrinter():
                 verbose=True,
             )
             self.om[key] = changed_obj['result']
+        self.events.emit(DuetModelEvents.objectmodel)
 
     async def tick(self):
         """Tick the printer."""
+        if not self.connected():
+            await self.connect()
         if self.om is None:
             # fetch initial full object model
             result = await self._fetch_full_status()
@@ -180,19 +219,12 @@ class DuetPrinter():
             result = await self.api.rr_model(key='seqs')
             # compare the dicts and return the difference
             changes = {}
-            if self.seqs is None:
-                changes = result['result']
-            elif self.seqs is not None:
-                for key, value in result['result'].items():
-                    if key in self.seqs and self.seqs[key] != value:
-                        changes[key] = value
-
+            for key, value in result['result'].items():
+                if key not in self.seqs or self.seqs[key] != value:
+                    changes[key] = value
             self.seqs = result['result']
-
-            if not changes:
-                return
-
-            await self._handle_om_changes(changes)
+            if changes:
+                await self._handle_om_changes(changes)
 
     async def http_503_callback(self, error: aiohttp.ClientResponseError):
         """503 callback."""
@@ -231,7 +263,7 @@ async def main():
 
     printer = DuetPrinter(api=api)
 
-    asyncio.create_task(printer_task(printer))
+    tasks = asyncio.create_task(printer_task(printer))
 
     try:
         while True:
@@ -242,7 +274,9 @@ async def main():
     except KeyboardInterrupt:
         pass
 
-    await asyncio.run(printer.close())
+    tasks.cancel()
+    await printer.api.session.close()
+    await printer.close()
 
 
 if __name__ == "__main__":
