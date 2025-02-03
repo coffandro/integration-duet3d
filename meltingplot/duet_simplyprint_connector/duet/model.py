@@ -100,7 +100,6 @@ class DuetPrinter():
         self.api.callbacks[503] = self._http_503_callback
         self.events.on(DuetModelEvents.objectmodel, self._track_state)
 
-
     @property
     def state(self) -> DuetState:
         """Get the state of the printer."""
@@ -108,7 +107,7 @@ class DuetPrinter():
             return DuetState(self.om['state']['status'])
         except (KeyError, TypeError):
             return DuetState.disconnected
-        
+
     async def _track_state(self, old_om: dict):
         """Track the state of the printer."""
         if old_om is None:
@@ -117,7 +116,7 @@ class DuetPrinter():
         if self.state != old_state:
             self.logger.debug(f"State change: {old_state} -> {self.state}")
             self.events.emit(DuetModelEvents.state, self.state)
-    
+
     async def connect(self) -> None:
         """Connect the printer."""
         result = await self.api.connect()
