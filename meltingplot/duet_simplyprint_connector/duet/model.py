@@ -92,6 +92,7 @@ class DuetPrinter():
     seqs = field(type=dict, factory=dict)
     logger = field(type=logging.Logger, factory=logging.getLogger)
     events = field(type=AsyncIOEventEmitter, factory=AsyncIOEventEmitter)
+    sbc = field(type=bool, default=False)
     _reply = field(type=str, default=None)
     _wait_for_reply = field(type=asyncio.Event, factory=asyncio.Event)
 
@@ -101,7 +102,9 @@ class DuetPrinter():
 
     async def connect(self) -> None:
         """Connect the printer."""
-        await self.api.connect()
+        result = await self.api.connect()
+        if 'isEmulated' in result:
+            self.sbc = True
         result = await self._fetch_full_status()
         self.om = result['result']
         self.events.emit(DuetModelEvents.connect)
@@ -117,20 +120,20 @@ class DuetPrinter():
             return False
         return True
 
-    async def gcode(self, command: str) -> str:
+    async def gcode(self, command: str, no_reply: bool = True) -> str:
         """Send a GCode command to the printer."""
         self._wait_for_reply.clear()
         await self.api.rr_gcode(
-            command=command,
+            gcode=command,
             no_reply=True,
         )
-        await self._wait_for_reply.wait()
-        return self._reply
+        if no_reply:
+            return ''
+        return await self.reply()
 
     async def reply(self) -> str:
         """Get the last reply from the printer."""
         await self._wait_for_reply.wait()
-        await asyncio.sleep(0)  # Allow other tasks to process the event
         return self._reply
 
     async def _fetch_objectmodel_recursive(self, *args, **kwargs) -> dict:
@@ -144,12 +147,15 @@ class DuetPrinter():
         """
         depth = kwargs.get('depth', 1)
 
+        if self.sbc and depth == 2:
+            kwargs['depth'] = 99
+
         response = await self.api.rr_model(
             *args,
             **kwargs,
         )
 
-        if isinstance(response['result'], dict):
+        if (depth == 1 or self.sbc is False) and isinstance(response['result'], dict):
             for k, v in response['result'].items():
                 sub_key = f"{k}" if kwargs['key'] == '' else f"{kwargs['key']}.{k}"
                 sub_depth = (depth + 1) if isinstance(v, dict) else 99
@@ -174,24 +180,25 @@ class DuetPrinter():
         return response
 
     async def _fetch_full_status(self) -> dict:
-        response = await self._fetch_objectmodel_recursive(
-            key='',
-            depth=1,
-            frequently=False,
-            include_null=True,
-            verbose=True,
-        )
+        try:
+            response = await self._fetch_objectmodel_recursive(
+                key='',
+                depth=1,
+                frequently=False,
+                include_null=True,
+                verbose=True,
+            )
+        except KeyError:
+            response = {}
 
         return response
 
     async def _handle_om_changes(self, changes: dict):
         """Handle object model changes."""
-        old_om = dict(self.om)
         if 'reply' in changes:
             self._reply = await self.api.rr_reply()
             self._wait_for_reply.set()
-            await asyncio.sleep(0)  # Allow other tasks to process the event
-            self._wait_for_reply.clear()
+            self.logger.debug(f"Reply: {self._reply}")
             changes.pop('reply')
 
         if 'volChanges' in changes:
@@ -207,7 +214,6 @@ class DuetPrinter():
                 verbose=True,
             )
             self.om[key] = changed_obj['result']
-        self.events.emit(DuetModelEvents.objectmodel, old_om)
 
     async def tick(self):
         """Tick the printer."""
@@ -220,15 +226,24 @@ class DuetPrinter():
             self.events.emit(DuetModelEvents.objectmodel, None)
         else:
             # fetch partial object model
-            result = await self.api.rr_model(key='seqs')
+            result = await self.api.rr_model(
+                key='',
+                depth=99,
+                frequently=True,
+                include_null=True,
+                verbose=True,
+            )
             # compare the dicts and return the difference
             changes = {}
-            for key, value in result['result'].items():
+            for key, value in result['result']['seqs'].items():
                 if key not in self.seqs or self.seqs[key] != value:
                     changes[key] = value
-            self.seqs = result['result']
+            self.seqs = result['result']['seqs']
+            old_om = dict(self.om)
+            self.om = merge_dictionary(self.om, result['result'])
             if changes:
                 await self._handle_om_changes(changes)
+            self.events.emit(DuetModelEvents.objectmodel, old_om)
 
     async def http_503_callback(self, error: aiohttp.ClientResponseError):
         """503 callback."""
@@ -239,49 +254,3 @@ class DuetPrinter():
                 break
             self._reply = reply
         self._wait_for_reply.set()
-        await asyncio.sleep(0)  # Allow other tasks to process the event
-        self._wait_for_reply.clear()
-
-
-async def printer_task(printer):
-    """Printer task."""
-    while True:
-        await printer.tick()
-        await asyncio.sleep(0.25)
-
-
-async def main():
-    """Execute the main function."""
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    api = RepRapFirmware(
-        address="http://192.168.172.75",
-        password="meltingplot",
-        logger=logging.getLogger(f"{__name__}.RepRapFirmware"),
-    )
-    api.logger.setLevel(logging.INFO)
-
-    printer = DuetPrinter(api=api)
-
-    tasks = asyncio.create_task(printer_task(printer))
-
-    try:
-        while True:
-            reply = await printer.reply()
-            reply = reply.replace('\n', '\\n')
-            logging.getLogger().debug(f"Reply: {reply}")
-            await asyncio.sleep(0.25)
-    except KeyboardInterrupt:
-        pass
-
-    tasks.cancel()
-    await printer.api.session.close()
-    await printer.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

@@ -41,6 +41,7 @@ from yarl import URL
 
 from . import __version__
 from .duet.api import RepRapFirmware
+from .duet.model import DuetPrinter
 from .gcode import GCodeBlock
 from .network import get_local_ip_and_mac
 
@@ -170,7 +171,8 @@ class VirtualConfig(PrinterConfig):
 class VirtualClient(DefaultClient[VirtualConfig]):
     """A Websocket client for the SimplyPrint.io Service."""
 
-    duet: RepRapFirmware
+    duet_api: RepRapFirmware
+    duet: DuetPrinter
 
     def __init__(self, *args, **kwargs) -> None:
         """Initialize the client."""
@@ -180,17 +182,21 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.logger.info('Initializing the client')
 
-        self.duet = RepRapFirmware(
+        self.duet_api = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
-            logger=self.logger,
+            logger=self.logger.getChild('duet_api'),
         )
 
-        self._duet_connected = False
-        self._printer_timeout = 0
-        self._printer_status = None
-        self._job_status = None
-        self._compensation = None
+        self.duet = DuetPrinter(
+            logger=self.logger.getChild('duet'),
+            api=self.duet_api,
+        )
+
+        self.duet.events.on('connect', self._duet_on_connect)
+        self.duet.events.on('objectmodel', self.duet_on_objectmodel)
+
+        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
         self._webcam_timeout = 0
         self._webcam_distribution_task_handle = None
@@ -199,8 +205,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self._background_task = set()
         self._is_stopped = False
-
-        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
         self.printer.info.core_count = psutil.cpu_count(logical=False)
         self.printer.info.total_memory = psutil.virtual_memory().total
@@ -216,6 +220,32 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         request = WebcamSnapshotRequest()
         await self._requested_webcam_snapshots.put(request)
 
+    async def duet_on_objectmodel(self, old_om) -> None:
+        """Handle Objectmodel changes."""
+        self.logger.debug('Objectmodel changed')
+        await self._mesh_compensation_status(old_om['move']['compensation'])
+        try:
+            await self._update_temperatures()
+        except KeyError:
+            self.printer.bed_temperature.actual = 0.0
+            self.printer.tool_temperatures[0].actual = 0.0
+
+        old_printer_state = self.printer.status
+        await self._map_duet_state_to_printer_status()
+
+        if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
+            self.printer.job_info.cancelled = True
+        elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
+            if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
+                # setting 'finished' will clear 'started'
+                self.printer.job_info.finished = True
+                self.printer.job_info.progress = 100.0
+
+        if await self._is_printing():
+            await self._update_job_info()
+
+        await self._update_filament_sensor()
+
     async def on_connected(self, _) -> None:
         """Connect to Simplyprint.io."""
         self.logger.info('Connected to Simplyprint.io')
@@ -223,10 +253,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.use_running_loop()
         self._is_stopped = False
 
-        await self._printer_status_task()
-        await self._job_status_task()
-        await self._filament_monitors_task()
-        await self._mesh_compensation_status_task()
+        await self._duet_printer_task()
         await self._connector_status_task()
 
     async def on_remove_connection(self, _) -> None:
@@ -243,12 +270,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Update the printer settings."""
         self.logger.debug("Printer settings: %s", event.data)
 
-    async def on_gcode(self, event: GcodeDemandData) -> None:
-        """
-        Receive GCode from SP and send GCode to duet.
-
-        The GCode is checked for allowed commands and then sent to the Duet.
-        """
+    @async_task
+    async def deferred_gcode(self, event: GcodeDemandData) -> None:
+        """Defer the GCode event."""
         self.logger.debug("Received Gcode: {!r}".format(event.list))
 
         gcode = GCodeBlock().parse(event.list)
@@ -277,10 +301,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         for item in gcode.code:
             if item.code in allowed_commands and not self.config.in_setup:
-                response.append(await self.duet.rr_gcode(item.compress()))
+                response.append(await self.duet.gcode(item.compress()))
             elif item.code == 'M300' and self.config.in_setup:
                 response.append(
-                    await self.duet.rr_gcode(
+                    await self.duet.gcode(
                         f'M291 P"Simplyprint.io Code: {self.config.short_id}" R"Simplyprint Identification" S2',
                     ),
                 )
@@ -328,6 +352,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # M109
         # M155 # not supported by reprapfirmware
 
+    async def on_gcode(self, event: GcodeDemandData) -> None:
+        """
+        Receive GCode from SP and send GCode to duet.
+
+        The GCode is checked for allowed commands and then sent to the Duet.
+        """
+        await self.deferred_gcode(event)
+
     def _upload_file_progress(self, progress: float) -> None:
         """Update the file upload progress."""
         # contrains the progress from 50 - 90 %
@@ -340,7 +372,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         while timeout > time.time():
             try:
-                response = await self.duet.rr_fileinfo(
+                response = await self.duet.api.rr_fileinfo(
                     name="0:/gcodes/{!s}".format(event.file_name),
                     timeout=aiohttp.ClientTimeout(total=10),
                 )
@@ -366,6 +398,35 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.on_start_print(event),
             self.event_loop,
         )
+
+    @async_task
+    async def _duet_printer_task(self):
+        """Duet Printer task."""
+        while not self._is_stopped:
+            try:
+                if self._printer_timeout < time.time():
+                    self.printer.status = PrinterStatus.OFFLINE
+                    await self.duet.close()
+                try:
+                    if not self.duet.connected():
+                        await self.duet.connect()
+                    await self.duet.tick()
+                except (KeyError, aiohttp.ClientConnectionError, aiohttp.ClientResponseError, asyncio.TimeoutError):
+                    self.logger.debug('Failed to connect to Duet')
+                    await self.duet.close()
+                    await asyncio.sleep(30)
+                    continue
+                self._printer_timeout = time.time() + 60 * 5
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError as e:
+                await self.duet.close()
+                raise e
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred while ticking duet printer",
+                )
+                await asyncio.sleep(10)
+                continue
 
     @async_task
     async def _fileprogress_task(self) -> None:
@@ -412,7 +473,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 try:
                     # Ensure progress updates are sent during the upload process,
                     # as uploading large files (e.g., 1 GB) can take significant time on a Duet2 Wifi.
-                    response = await self.duet.rr_upload_stream(
+                    response = await self.duet.api.rr_upload_stream(
                         filepath='{!s}{!s}'.format(prefix, event.file_name),
                         file=f,
                         progress=self._upload_file_progress,
@@ -423,7 +484,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     break
                 except aiohttp.ClientResponseError as e:
                     if e.status == 401 or e.status == 500:
-                        await self.duet.reconnect()
+                        await self.duet.api.reconnect()
                     else:
                         # Ensure the exception is not supressed
                         raise e
@@ -442,59 +503,41 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def on_start_print(self, _) -> None:
         """Start the print job."""
-        await self.duet.rr_gcode(
+        await self.duet.gcode(
             'M23 "0:/gcodes/{!s}"'.format(self.printer.job_info.filename),
         )
-        await self.duet.rr_gcode('M24')
+        await self.duet.gcode('M24')
 
     async def on_pause(self, _) -> None:
         """Pause the print job."""
-        await self.duet.rr_gcode('M25')
+        await self.duet.gcode('M25')
 
     async def on_resume(self, _) -> None:
         """Resume the print job."""
-        await self.duet.rr_gcode('M24')
+        await self.duet.gcode('M24')
 
     async def on_cancel(self, _) -> None:
         """Cancel the print job."""
-        await self.duet.rr_gcode('M25')
-        await self.duet.rr_gcode('M0')
+        await self.duet.gcode('M25')
+        await self.duet.gcode('M0')
 
-    async def _connect_to_duet(self) -> None:
+    async def _duet_on_connect(self) -> None:
         """Connect to the Duet board."""
-        try:
-            response = await self.duet.connect()
-            self.logger.debug("Response from Duet: {!s}".format(response))
-            self._printer_status = None
-        except (
-            aiohttp.ClientConnectionError,
-            TimeoutError,
-            asyncio.exceptions.TimeoutError,
-            asyncio.TimeoutError,
-        ) as e:
-            self.printer.status = PrinterStatus.OFFLINE
-            raise e
-        except aiohttp.ClientError as e:
-            self.logger.debug(
-                "Failed to connect to Duet with error: {!s}".format(e),
+        if self.config.in_setup:
+            await self.duet.gcode(
+                f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
             )
-            raise e
+        else:
+            await self._check_and_set_cookie()
 
-        try:
-            board = await self.duet.rr_model(key='boards[0]')
-            board = board['result']
-            network = await self.duet.rr_model(key='network')
-            network = network['result']
-        except Exception as e:
-            self.logger.error('Error connecting to Duet Board: {0}'.format(e))
-            raise e
-
-        self.logger.info('Connected to Duet Board {0}'.format(board))
+        board = self.duet.om['boards'][0]
+        network = self.duet.om['network']
 
         if self.config.duet_unique_id is None:
             # Set the unique ID if it is not set
             # and emit an event to notify the client
             # that the configuration has changed
+            # TODO: Update the webcam URI
             self.config.duet_unique_id = board['uniqueId']
             await self.event_bus.emit(ClientConfigChangedEvent)
         else:
@@ -523,13 +566,11 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
         self.printer.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
 
-        self._duet_connected = True
-
-    async def _update_temperatures(self, printer_status: dict) -> None:
+    async def _update_temperatures(self) -> None:
         """Update the printer temperatures."""
-        heaters = printer_status['result']['heat']['heaters']
+        heaters = self.duet.om['heat']['heaters']
         # TODO make it aware of more than one bed heater
-        bed_heater_index = printer_status['result']['heat']['bedHeaters'][0]
+        bed_heater_index = self.duet.om['heat']['bedHeaters'][0]
 
         self.printer.bed_temperature.actual = heaters[bed_heater_index]['current']
         if heaters[0]['state'] != 'off':
@@ -538,7 +579,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.bed_temperature.target = 0.0
 
         for tool_idx, tool_temperature in enumerate(self.printer.tool_temperatures):
-            heater_idx = printer_status['result']['tools'][tool_idx]['heaters'][0]
+            heater_idx = self.duet.om['tools'][tool_idx]['heaters'][0]
             tool_temperature.actual = heaters[heater_idx]['current']
 
             if heaters[1]['state'] != 'off':
@@ -548,112 +589,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.printer.ambient_temperature.ambient = 20
 
-    async def _fetch_partial_status(self, *args, **kwargs) -> dict:
-        response = await self.duet.rr_model(
-            *args,
-            **kwargs,
-        )
-
-        # TODO: remove when duet fixed this
-        # internal duet server is buffering the replay for every connected client
-        # so we need to fetch the response to free the buffer even if we don't need the response
-        await self.duet.rr_reply()
-        return response
-
-    async def _fetch_full_status(self) -> dict:
-        full_status = {}
-
-        keys = await self.duet.rr_model(
-            key='',
-            depth=1,
-            frequently=False,
-        )
-
-        for key in keys['result']:
-            response = await self._fetch_partial_status(
-                key=key,
-                depth=99,
-                frequently=False,
-                include_null=True,
-            )
-            full_status[key] = response['result']
-            # give RRF time to free buffers
-            await asyncio.sleep(1)
-
-        full_status = {'result': full_status}
-        return full_status
-
-    async def _fetch_printer_status(self, force_full_status=False) -> dict:
-        try:
-            if self._printer_status is None or force_full_status:
-                printer_status = await self._fetch_full_status()
-            else:
-                partial_status = await self._fetch_partial_status(
-                    key='',
-                    frequently=True,
-                    include_null=True,
-                    depth=99,
-                )
-
-                printer_status = merge_dictionary(self._printer_status, partial_status)
-
-        except (
-            aiohttp.ClientConnectionError,
-            TimeoutError,
-            asyncio.exceptions.TimeoutError,
-            asyncio.TimeoutError,
-        ):
-            printer_status = None
-        except Exception:
-            self.logger.exception(
-                "An exception occurred while updating the printer status",
-            )
-            # use old printer status if new one is not available
-            printer_status = self._printer_status
-        return printer_status
-
-    async def _fetch_job_status(self) -> dict:
-        job_status = await self._fetch_rr_model(
-            key='job',
-            return_on_exception=self._job_status,
-            frequently=False,
-            depth=5,
-        )
-        return job_status
-
-    async def _fetch_rr_model(self, key, return_on_exception=None, return_on_timeout=None, **kwargs) -> dict:
-        try:
-            response = await self.duet.rr_model(
-                key=key,
-                **kwargs,
-            )
-        except (
-            aiohttp.ClientConnectionError,
-            TimeoutError,
-            asyncio.exceptions.TimeoutError,
-            asyncio.TimeoutError,
-        ):
-            response = return_on_timeout
-        except Exception as e:
-            msg = "An {!s} exception occurred while fetching rr_model with key: {!s}".format(
-                type(e).__name__,
-                key,
-            )
-            self.logger.exception(msg)
-            response = return_on_exception
-        return response
-
     async def _check_and_set_cookie(self) -> None:
         """Check if the cookie is set and set it if it is not."""
         self.logger.debug('Checking if cookie is set')
         try:
-            async for chunk in self.duet.rr_download(filepath='0:/sys/simplyprint-connector.json'):
+            async for chunk in self.duet.api.rr_download(filepath='0:/sys/simplyprint-connector.json'):
                 break
-            await self.duet.rr_delete(filepath='0:/sys/simplyprint-connector.json')
+            await self.duet.api.rr_delete(filepath='0:/sys/simplyprint-connector.json')
         except aiohttp.client_exceptions.ClientResponseError:
             self.logger.debug('Cookie not set, setting cookie')
 
-        await self.duet.rr_upload_stream(
+        await self.duet.api.rr_upload_stream(
             filepath='0:/sys/simplyprint-connector.json',
             file=io.BytesIO(
                 json.dumps(
@@ -667,99 +613,23 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     @async_task
-    async def _printer_status_task(self) -> None:
-        """Task to check for printer status changes and send printer data to SimplyPrint."""
-        next_full_status = 0
-        while not self._is_stopped:
-            try:
-                if not self._duet_connected:
-                    try:
-                        await self._connect_to_duet()
-                    except (
-                        aiohttp.ClientError,
-                        aiohttp.ClientConnectionError,
-                        TimeoutError,
-                        asyncio.exceptions.TimeoutError,
-                        asyncio.TimeoutError,
-                    ):
-                        await asyncio.sleep(60)
-                        continue
-
-                    if self.config.in_setup:
-                        await self.duet.rr_gcode(
-                            f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
-                        )
-                    else:
-                        await self._check_and_set_cookie()
-
-                fetch_full_status = False
-                if time.time() > next_full_status:
-                    # Fetch full status every 15 minutes
-                    fetch_full_status = True
-                    next_full_status = time.time() + 60 * 15
-
-                self._printer_status = await self._fetch_printer_status(force_full_status=fetch_full_status)
-                await self._update_printer_status()
-                await asyncio.sleep(1)
-            except asyncio.CancelledError as e:
-                await self.duet.close()
-                raise e
-            except Exception:
-                self.logger.exception(
-                    "An exception occurred while fetching printer status",
-                )
-                await asyncio.sleep(10)
-                continue
-
-    @async_task
-    async def _job_status_task(self) -> None:
-        """Task to check for job status changes and send job data to SimplyPrint."""
-        while not self._is_stopped:
-            if not self._duet_connected:
-                await asyncio.sleep(60)
-                continue
-
-            self._job_status = await self._fetch_job_status()
-
-            if self.printer.status != PrinterStatus.OFFLINE:
-                if await self._is_printing():
-                    await self._update_job_info()
-
-            await asyncio.sleep(5)
-
-    @async_task
-    async def _mesh_compensation_status_task(self) -> None:
+    async def _mesh_compensation_status(self, old_compensation) -> None:
         """Task to check for mesh compensation changes and send mesh data to SimplyPrint."""
-        while not self._is_stopped:
-            if not self._duet_connected:
-                await asyncio.sleep(60)
-                continue
+        compensation = self.duet.om['move']['compensation']
 
-            compensation = await self._fetch_rr_model(
-                key='move.compensation',
-                return_on_exception=None,
-                frequently=False,
-                depth=4,
+        if (
+            compensation is not None and 'file' in compensation and compensation['file'] is not None and (
+                old_compensation is None or 'file' not in old_compensation
+                or old_compensation['file'] != compensation['file']
             )
-
-            old_compensation = self._compensation
-            self._compensation = compensation
-
-            if (
-                compensation is not None and 'file' in compensation['result']
-                and compensation['result']['file'] is not None and (
-                    old_compensation is None or 'file' not in old_compensation['result']
-                    or old_compensation['result']['file'] != compensation['result']['file']
+        ):
+            try:
+                await self._send_mesh_data()
+            except Exception as e:
+                self.logger.exception(
+                    "An exception occurred while sending mesh data",
+                    exc_info=e,
                 )
-            ):
-                try:
-                    await self._send_mesh_data()
-                except Exception as e:
-                    self.logger.exception(
-                        "An exception occurred while sending mesh data",
-                        exc_info=e,
-                    )
-            await asyncio.sleep(10)
 
     async def _update_cpu_and_memory_info(self) -> None:
         self.printer.cpu_info.usage = psutil.cpu_percent(interval=1)
@@ -781,9 +651,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             await asyncio.sleep(120)
 
-    async def _map_duet_state_to_printer_status(self, printer_status: dict) -> None:
+    async def _map_duet_state_to_printer_status(self) -> None:
         try:
-            printer_state = printer_status['result']['state']['status']
+            printer_state = self.duet.om['state']['status']
         except (KeyError, TypeError):
             printer_state = 'disconnected'
 
@@ -794,28 +664,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         else:
             self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
 
-    @async_task
-    async def _filament_monitors_task(self) -> None:
-        """Task to check for filament sensor changes."""
-        while not self._is_stopped:
-            if not self._duet_connected:
-                await asyncio.sleep(10)
-                continue
-
-            filament_monitors = await self._fetch_rr_model(
-                key='sensors.filamentMonitors',
-                frequently=False,
-                depth=4,
-            )
-
-            await self._update_filament_sensor(filament_monitors)
-            await asyncio.sleep(10)
-
-    async def _update_filament_sensor(self, filament_monitors: dict) -> None:
-        if filament_monitors is None:
-            return
-
-        filament_monitors = filament_monitors['result']
+    async def _update_filament_sensor(self) -> None:
+        filament_monitors = self.duet.om['sensors']['filamentMonitors']
 
         for monitor in filament_monitors:
             if monitor['enableMode'] > 0:
@@ -838,46 +688,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 except KeyError:
                     pass
 
-    async def _update_printer_status(self) -> None:
-        printer_status = self._printer_status
-
-        if printer_status is None:
-            if time.time() > self._printer_timeout:
-                self.printer.status = PrinterStatus.OFFLINE
-                self._duet_connected = False
-            return
-
-        try:
-            await self._update_temperatures(printer_status)
-        except KeyError:
-            self.printer.bed_temperature.actual = 0.0
-            self.printer.tool_temperatures[0].actual = 0.0
-
-        old_printer_state = self.printer.status
-        await self._map_duet_state_to_printer_status(printer_status)
-
-        if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
-            self.printer.job_info.cancelled = True
-        elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
-            if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
-                # setting 'finished' will clear 'started'
-                self.printer.job_info.finished = True
-                self.printer.job_info.progress = 100.0
-
-        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
-
     async def _is_printing(self) -> bool:
         printing = (
             self.printer.status == PrinterStatus.PRINTING or self.printer.status == PrinterStatus.PAUSED
             or self.printer.status == PrinterStatus.PAUSING or self.printer.status == PrinterStatus.RESUMING
         )
 
-        job_status = self._job_status
-
-        if (job_status is None or 'result' not in job_status or 'file' not in job_status['result']):
-            return printing
-
-        job_status = job_status['result']['file']
+        try:
+            job_status = self.duet.om['job']['file']
+        except (KeyError, TypeError):
+            return False
 
         printing = printing or ('filename' in job_status and job_status['filename'] is not None)
 
@@ -894,10 +714,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.time = 0
 
     async def _update_job_info(self) -> None:
-        if self._job_status is None:
-            return
-
-        job_status = self._job_status['result']
+        job_status = self.duet.om['job']
 
         try:
             # TODO: Find another way to calculate the progress
@@ -1069,7 +886,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     if request.snapshot_id is not None:
                         await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
                         continue
-                    if self.printer.intervals.is_ready("webcam"):
+                    if image is not None and self.printer.intervals.is_ready("webcam"):
                         await self._send_webcam_snapshot(image=image)
                     else:
                         await self._requested_webcam_snapshots.put(request)
@@ -1108,7 +925,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         raise KeyboardInterrupt()
 
     async def _send_mesh_data(self) -> None:
-        compensation = self._compensation['result']
+        compensation = self.duet.om['move']['compensation']
         self.logger.debug('Send mesh data called')
         self.logger.debug('Compensation: {!s}'.format(compensation))
 
@@ -1151,7 +968,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.logger.debug('Downloading mesh data from duet')
         heightmap = io.BytesIO()
 
-        async for chunk in self.duet.rr_download(filepath=compensation['file']):
+        async for chunk in self.duet.api.rr_download(filepath=compensation['file']):
             heightmap.write(chunk)
 
         heightmap.seek(0)
