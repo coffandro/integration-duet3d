@@ -411,7 +411,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     if not self.duet.connected():
                         await self.duet.connect()
                     await self.duet.tick()
-                except (KeyError, aiohttp.ClientConnectionError, aiohttp.ClientResponseError, asyncio.TimeoutError):
+                except (TypeError, KeyError, aiohttp.ClientConnectionError, aiohttp.ClientResponseError, asyncio.TimeoutError):
                     self.logger.debug('Failed to connect to Duet')
                     await self.duet.close()
                     await asyncio.sleep(30)
