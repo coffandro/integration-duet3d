@@ -10,7 +10,7 @@ import pytest
 from .context import FileProgressStateEnum, VirtualClient, VirtualConfig
 from simplyprint_ws_client.core.ws_protocol.messages import FileDemandData
 from simplyprint_ws_client.core.state import PrinterStatus
-from meltingplot.duet_simplyprint_connector.virtual_client import merge_dictionary
+from meltingplot.duet_simplyprint_connector.duet.model import merge_dictionary
 
 @pytest.fixture
 def virtual_client():

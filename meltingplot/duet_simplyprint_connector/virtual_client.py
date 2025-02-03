@@ -80,45 +80,6 @@ duet_state_simplyprint_status_while_printing_mapping = {
 }
 
 
-def merge_dictionary(source, destination):
-    """Merge multiple dictionaries."""
-    # {'a': 1, 'b': {'c': 2}},
-    # {'b': {'c': 3}},
-    # {'a': 1, 'b': {'c': 3}}
-
-    result = {}
-    dk = dict(destination)
-    for key, value in source.items():
-        if isinstance(value, dict):
-            result[key] = merge_dictionary(value, destination.get(key, {}))
-        elif isinstance(value, list):
-            result[key] = value
-            dest_value = destination.get(key, [])
-            src_len = len(value)
-            dest_len = len(dest_value)
-            if dest_len == 0:
-                result[key] = value
-                continue
-            if src_len > dest_len:
-                raise ValueError(
-                    "List length mismatch in merge for key: {!s} src: {!s} dest: {!s}".format(key, value, dest_value),
-                )
-            if src_len < dest_len:
-                result[key] = dest_value
-                continue
-
-            for idx, item in enumerate(value):
-                if dest_value[idx] is None:
-                    continue
-                if isinstance(item, dict):
-                    result[key][idx] = merge_dictionary(item, dest_value[idx])
-        else:
-            result[key] = destination.get(key, value)
-        dk.pop(key, None)
-    result.update(dk)
-    return result
-
-
 def async_task(func):
     """Run a function as a task."""
 
@@ -220,6 +181,51 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         request = WebcamSnapshotRequest()
         await self._requested_webcam_snapshots.put(request)
 
+    async def _duet_on_connect(self) -> None:
+        """Connect to the Duet board."""
+        if self.config.in_setup:
+            await self.duet.gcode(
+                f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
+            )
+        else:
+            await self._check_and_set_cookie()
+
+        board = self.duet.om['boards'][0]
+        network = self.duet.om['network']
+
+        if self.config.duet_unique_id is None:
+            # Set the unique ID if it is not set
+            # and emit an event to notify the client
+            # that the configuration has changed
+            # TODO: Update the webcam URI
+            self.config.duet_unique_id = board['uniqueId']
+            await self.event_bus.emit(ClientConfigChangedEvent)
+        else:
+            if self.config.duet_unique_id != board['uniqueId']:
+                self.logger.error(
+                    'Unique ID mismatch: {0} != {1}'.format(self.config.duet_unique_id, board['uniqueId']),
+                )
+                self.printer.status = PrinterStatus.OFFLINE
+                # TODO: Implement a search mechanism based on the unique ID
+                raise ValueError('Unique ID mismatch')
+
+        # the format of the machine_name should be [MANUFACTURER] [PRINTER MODEL]
+        name_search = re.search(
+            r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?',
+            network['name'],
+            re.I,
+        )
+        try:
+            printer_name = name_search.group(3).replace('-', ' ').strip()
+            self.printer.firmware.machine_name = f"Meltingplot {printer_name}"
+        except (AttributeError, IndexError):
+            self.printer.firmware.machine_name = network['name']
+
+        self.printer.firmware.name = board['firmwareName']
+        self.printer.firmware.version = board['firmwareVersion']
+        self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
+        self.printer.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
+
     async def duet_on_objectmodel(self, old_om) -> None:
         """Handle Objectmodel changes."""
         self.logger.debug('Objectmodel changed')
@@ -245,6 +251,41 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             await self._update_job_info()
 
         await self._update_filament_sensor()
+
+    @async_task
+    async def _duet_printer_task(self):
+        """Duet Printer task."""
+        while not self._is_stopped:
+            try:
+                if self._printer_timeout < time.time():
+                    self.printer.status = PrinterStatus.OFFLINE
+                    await self.duet.close()
+                try:
+                    if not self.duet.connected():
+                        await self.duet.connect()
+                    await self.duet.tick()
+                except (
+                    TypeError,
+                    KeyError,
+                    aiohttp.ClientConnectionError,
+                    aiohttp.ClientResponseError,
+                    asyncio.TimeoutError,
+                ):
+                    self.logger.debug('Failed to connect to Duet')
+                    await self.duet.close()
+                    await asyncio.sleep(30)
+                    continue
+                self._printer_timeout = time.time() + 60 * 5
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError as e:
+                await self.duet.close()
+                raise e
+            except Exception:
+                self.logger.exception(
+                    "An exception occurred while ticking duet printer",
+                )
+                await asyncio.sleep(10)
+                continue
 
     async def on_connected(self, _) -> None:
         """Connect to Simplyprint.io."""
@@ -400,41 +441,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     @async_task
-    async def _duet_printer_task(self):
-        """Duet Printer task."""
-        while not self._is_stopped:
-            try:
-                if self._printer_timeout < time.time():
-                    self.printer.status = PrinterStatus.OFFLINE
-                    await self.duet.close()
-                try:
-                    if not self.duet.connected():
-                        await self.duet.connect()
-                    await self.duet.tick()
-                except (
-                    TypeError,
-                    KeyError,
-                    aiohttp.ClientConnectionError,
-                    aiohttp.ClientResponseError,
-                    asyncio.TimeoutError,
-                ):
-                    self.logger.debug('Failed to connect to Duet')
-                    await self.duet.close()
-                    await asyncio.sleep(30)
-                    continue
-                self._printer_timeout = time.time() + 60 * 5
-                await asyncio.sleep(0.5)
-            except asyncio.CancelledError as e:
-                await self.duet.close()
-                raise e
-            except Exception:
-                self.logger.exception(
-                    "An exception occurred while ticking duet printer",
-                )
-                await asyncio.sleep(10)
-                continue
-
-    @async_task
     async def _fileprogress_task(self) -> None:
         """
         Periodically send file upload progress updates.
@@ -526,51 +532,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Cancel the print job."""
         await self.duet.gcode('M25')
         await self.duet.gcode('M0')
-
-    async def _duet_on_connect(self) -> None:
-        """Connect to the Duet board."""
-        if self.config.in_setup:
-            await self.duet.gcode(
-                f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
-            )
-        else:
-            await self._check_and_set_cookie()
-
-        board = self.duet.om['boards'][0]
-        network = self.duet.om['network']
-
-        if self.config.duet_unique_id is None:
-            # Set the unique ID if it is not set
-            # and emit an event to notify the client
-            # that the configuration has changed
-            # TODO: Update the webcam URI
-            self.config.duet_unique_id = board['uniqueId']
-            await self.event_bus.emit(ClientConfigChangedEvent)
-        else:
-            if self.config.duet_unique_id != board['uniqueId']:
-                self.logger.error(
-                    'Unique ID mismatch: {0} != {1}'.format(self.config.duet_unique_id, board['uniqueId']),
-                )
-                self.printer.status = PrinterStatus.OFFLINE
-                # TODO: Implement a search mechanism based on the unique ID
-                raise ValueError('Unique ID mismatch')
-
-        # the format of the machine_name should be [MANUFACTURER] [PRINTER MODEL]
-        name_search = re.search(
-            r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?',
-            network['name'],
-            re.I,
-        )
-        try:
-            printer_name = name_search.group(3).replace('-', ' ').strip()
-            self.printer.firmware.machine_name = f"Meltingplot {printer_name}"
-        except (AttributeError, IndexError):
-            self.printer.firmware.machine_name = network['name']
-
-        self.printer.firmware.name = board['firmwareName']
-        self.printer.firmware.version = board['firmwareVersion']
-        self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
-        self.printer.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
 
     async def _update_temperatures(self) -> None:
         """Update the printer temperatures."""
