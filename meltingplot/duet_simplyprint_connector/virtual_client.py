@@ -846,17 +846,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         while not self._is_stopped and time.time() < self._webcam_timeout:
             try:
-                image = await self._fetch_webcam_image()
-
                 if self._requested_webcam_snapshots.qsize() > 0:
                     request = await self._requested_webcam_snapshots.get()
                     if request.snapshot_id is not None:
+                        image = await self._fetch_webcam_image()
                         await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
                         continue
-                    if image is not None and self.printer.intervals.is_ready("webcam"):
+                    if self.printer.intervals.is_ready('webcam'):
+                        image = await self._fetch_webcam_image()
                         await self._send_webcam_snapshot(image=image)
                     else:
                         await self._requested_webcam_snapshots.put(request)
+                        await self.printer.intervals.wait_for('webcam')
+                else:
+                    await asyncio.sleep(0.1)
                 # else drop the frame and grab the next one
             except Exception:
                 self.logger.exception("Failed to distribute webcam image")

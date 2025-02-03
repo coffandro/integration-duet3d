@@ -44,7 +44,7 @@ def rescan_existing_networks(app):
     return networks
 
 
-def run_app(autodiscover, app):
+def run_app(autodiscover, app, profile):
     """Run the application."""
     click.echo("Starting the Meltingplot Duet SimplyPrint.io Connector")
     click.echo('Perform network scans for existing networks')
@@ -54,6 +54,27 @@ def run_app(autodiscover, app):
     for network, pwd in networks.items():
         click.echo(f"Scanning existing network: {network} with password {pwd}")
         autodiscover._autodiscover(password=pwd, ipv4_range=network, ipv6_range="::1/128")
+
+    if profile:
+        import cProfile
+        import atexit
+        import pstats
+        import io
+
+        click.echo("Profiling enabled")
+        pr = cProfile.Profile()
+        pr.enable()
+
+        def app_exit():
+            click.echo("Exiting the Meltingplot Duet SimplyPrint.io Connector")
+            pr.disable()
+            s = io.StringIO()
+            sortby = 'cumulative'
+            ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+            ps.print_stats()
+            click.echo(s.getvalue())
+
+        atexit.register(app_exit)
 
     app.run_blocking()
 
@@ -74,6 +95,7 @@ def main():
     ClientHandler.setup_logging(settings)
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger("PIL").setLevel(logging.INFO)
+    logging.getLogger("aiohttp.client").setLevel(logging.INFO)
 
     app = ClientApp(settings)
     cli = ClientCli(app)
@@ -82,7 +104,14 @@ def main():
 
     cli.add_command(autodiscover.autodiscover)
     cli.add_command(install_as_service)
-    cli.add_command(click.Command("start", callback=lambda: run_app(autodiscover, app), help="Start the client"))
+    cli.add_command(
+        click.Command(
+            "start",
+            callback=lambda profile: run_app(autodiscover, app, profile),
+            help="Start the client",
+            params=[click.Option(["--profile"], is_flag=True, help="Enable profiling")],
+        ),
+    )
     cli(prog_name="python -m meltingplot.duet_simplyprint_connector")
 
 

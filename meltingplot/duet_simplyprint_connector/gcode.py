@@ -65,8 +65,8 @@ class GCodeCommand():
 class GCodeBlock():
     """A block of GCode commands."""
 
-    comment = attr.ib(factory=list)
-    code = attr.ib(factory=list)
+    comment = attr.ib(type=List[str], factory=list)
+    code = attr.ib(type=List[GCodeCommand], factory=list)
 
     def write(self, fp: TextIO) -> None:
         """Write the GCodeBlock to a file-like object."""

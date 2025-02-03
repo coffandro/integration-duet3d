@@ -139,6 +139,7 @@ class DuetPrinter():
 
     async def gcode(self, command: str, no_reply: bool = True) -> str:
         """Send a GCode command to the printer."""
+        self.logger.debug(f"Sending GCode: {command}")
         self._wait_for_reply.clear()
         await self.api.rr_gcode(
             gcode=command,
