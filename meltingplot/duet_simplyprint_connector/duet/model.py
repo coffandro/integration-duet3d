@@ -86,7 +86,6 @@ class DuetState(CamelCaseStrEnum):
 class DuetPrinter():
     """Duet Printer model class."""
 
-    state = field(type=DuetState, default=DuetState.disconnected)
     api = field(type=RepRapFirmware, factory=RepRapFirmware)
     om = field(type=dict, default=None)
     seqs = field(type=dict, factory=dict)
@@ -98,8 +97,27 @@ class DuetPrinter():
 
     def __attrs_post_init__(self) -> None:
         """Post init."""
-        self.api.callbacks[503] = self.http_503_callback
+        self.api.callbacks[503] = self._http_503_callback
+        self.events.on(DuetModelEvents.objectmodel, self._track_state)
 
+
+    @property
+    def state(self) -> DuetState:
+        """Get the state of the printer."""
+        try:
+            return DuetState(self.om['state']['status'])
+        except (KeyError, TypeError):
+            return DuetState.disconnected
+        
+    async def _track_state(self, old_om: dict):
+        """Track the state of the printer."""
+        if old_om is None:
+            return
+        old_state = DuetState(old_om['state']['status'])
+        if self.state != old_state:
+            self.logger.debug(f"State change: {old_state} -> {self.state}")
+            self.events.emit(DuetModelEvents.state, self.state)
+    
     async def connect(self) -> None:
         """Connect the printer."""
         result = await self.api.connect()
@@ -140,10 +158,15 @@ class DuetPrinter():
         """
         Fetch the object model recursively.
 
+        Duet2
         The implementation is recursive to fetch the object model in chunks.
         This is required because the object model is too large to fetch in a single request.
         The implementation might be slow because of the recursive nature of the function, but
         this helps to reduce the load on the duet board.
+
+        Duet3 or SBC mode (isEmulated)
+        The implementation is not recursive and fetches the object model in a single request
+        starting from the second level of the object model (d=2).
         """
         depth = kwargs.get('depth', 1)
 
@@ -240,12 +263,15 @@ class DuetPrinter():
                     changes[key] = value
             self.seqs = result['result']['seqs']
             old_om = dict(self.om)
-            self.om = merge_dictionary(self.om, result['result'])
-            if changes:
-                await self._handle_om_changes(changes)
-            self.events.emit(DuetModelEvents.objectmodel, old_om)
+            try:
+                self.om = merge_dictionary(self.om, result['result'])
+                if changes:
+                    await self._handle_om_changes(changes)
+                self.events.emit(DuetModelEvents.objectmodel, old_om)
+            except (TypeError, KeyError):
+                self.logger.debug("Failed to update object model")
 
-    async def http_503_callback(self, error: aiohttp.ClientResponseError):
+    async def _http_503_callback(self, error: aiohttp.ClientResponseError):
         """503 callback."""
         # there are no more than 10 clients connected to the duet board
         for _ in range(10):
