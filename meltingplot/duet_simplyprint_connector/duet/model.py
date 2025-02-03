@@ -217,6 +217,7 @@ class DuetPrinter():
             # fetch initial full object model
             result = await self._fetch_full_status()
             self.om = result['result']
+            self.events.emit(DuetModelEvents.objectmodel, None)
         else:
             # fetch partial object model
             result = await self.api.rr_model(key='seqs')
