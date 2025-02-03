@@ -102,6 +102,8 @@ class DuetPrinter():
     async def connect(self) -> None:
         """Connect the printer."""
         await self.api.connect()
+        result = await self._fetch_full_status()
+        self.om = result['result']
         self.events.emit(DuetModelEvents.connect)
 
     async def close(self) -> None:
@@ -184,6 +186,7 @@ class DuetPrinter():
 
     async def _handle_om_changes(self, changes: dict):
         """Handle object model changes."""
+        old_om = dict(self.om)
         if 'reply' in changes:
             self._reply = await self.api.rr_reply()
             self._wait_for_reply.set()
@@ -204,7 +207,7 @@ class DuetPrinter():
                 verbose=True,
             )
             self.om[key] = changed_obj['result']
-        self.events.emit(DuetModelEvents.objectmodel)
+        self.events.emit(DuetModelEvents.objectmodel, old_om)
 
     async def tick(self):
         """Tick the printer."""
