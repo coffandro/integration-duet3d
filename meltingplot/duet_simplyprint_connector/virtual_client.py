@@ -166,6 +166,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self._background_task = set()
         self._is_stopped = False
 
+        await self._initialize_printer_info()
+
+        request = WebcamSnapshotRequest()
+        await self._requested_webcam_snapshots.put(request)
+
+    async def _initialize_printer_info(self) -> None:
+        """Initialize the printer info."""
         self.printer.info.core_count = psutil.cpu_count(logical=False)
         self.printer.info.total_memory = psutil.virtual_memory().total
         self.printer.info.hostname = socket.getfqdn()
@@ -176,9 +183,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.info.machine = self.config.duet_name or self.config.duet_uri
         else:
             self.printer.info.machine = PhysicalMachine.machine()
-
-        request = WebcamSnapshotRequest()
-        await self._requested_webcam_snapshots.put(request)
 
     async def _duet_on_connect(self) -> None:
         """Connect to the Duet board."""
