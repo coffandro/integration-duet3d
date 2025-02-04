@@ -132,7 +132,6 @@ class VirtualConfig(PrinterConfig):
 class VirtualClient(DefaultClient[VirtualConfig]):
     """A Websocket client for the SimplyPrint.io Service."""
 
-    duet_api: RepRapFirmware
     duet: DuetPrinter
 
     def __init__(self, *args, **kwargs) -> None:
@@ -143,7 +142,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.logger.info('Initializing the client')
 
-        self.duet_api = RepRapFirmware(
+        duet_api = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
             logger=self.logger.getChild('duet_api'),
@@ -151,7 +150,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.duet = DuetPrinter(
             logger=self.logger.getChild('duet'),
-            api=self.duet_api,
+            api=duet_api,
         )
 
         self.duet.events.on('connect', self._duet_on_connect)
