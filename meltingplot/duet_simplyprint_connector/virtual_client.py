@@ -229,7 +229,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def duet_on_objectmodel(self, old_om) -> None:
         """Handle Objectmodel changes."""
         self.logger.debug('Objectmodel changed')
-        await self._mesh_compensation_status(old_om['move']['compensation'])
+        await self._mesh_compensation_status(old_om=old_om)
         try:
             await self._update_temperatures()
         except KeyError:
@@ -580,8 +580,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
     @async_task
-    async def _mesh_compensation_status(self, old_compensation) -> None:
+    async def _mesh_compensation_status(self, old_om) -> None:
         """Task to check for mesh compensation changes and send mesh data to SimplyPrint."""
+        old_om = old_om or {}
+        old_compensation = old_om.get('move', {}).get('compensation')
         compensation = self.duet.om['move']['compensation']
 
         if (

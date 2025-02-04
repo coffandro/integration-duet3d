@@ -15,14 +15,18 @@ from strenum import CamelCaseStrEnum, StrEnum
 from .api import RepRapFirmware
 
 
-def merge_dictionary(source, destination):
+def merge_dictionary(source, destination):  # noqa: C901
     """Merge multiple dictionaries."""
     # {'a': 1, 'b': {'c': 2}},
     # {'b': {'c': 3}},
     # {'a': 1, 'b': {'c': 3}}
 
     result = {}
-    dk = dict(destination)
+    try:
+        dk = dict(destination)
+    except TypeError:
+        return None
+
     for key, value in source.items():
         if isinstance(value, dict):
             result[key] = merge_dictionary(value, destination.get(key, {}))
@@ -269,7 +273,9 @@ class DuetPrinter():
                     await self._handle_om_changes(changes)
                 self.events.emit(DuetModelEvents.objectmodel, old_om)
             except (TypeError, KeyError):
-                self.logger.debug("Failed to update object model")
+                self.logger.exception("Failed to update object model - fetch full model")
+                self.logger.debug(f"Old OM: {old_om} result {result['result']}")
+                self.om = None
 
     async def _http_503_callback(self, error: aiohttp.ClientResponseError):
         """503 callback."""
