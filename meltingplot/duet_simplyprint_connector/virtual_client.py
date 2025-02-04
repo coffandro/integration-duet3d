@@ -155,7 +155,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         )
 
         self.duet.events.on('connect', self._duet_on_connect)
-        self.duet.events.on('objectmodel', self.duet_on_objectmodel)
+        self.duet.events.on('objectmodel', self._duet_on_objectmodel)
 
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
@@ -226,7 +226,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
         self.printer.set_ui_info("meltingplot.duet-simplyprint-connector", __version__)
 
-    async def duet_on_objectmodel(self, old_om) -> None:
+    async def _duet_on_objectmodel(self, old_om) -> None:
         """Handle Objectmodel changes."""
         self.logger.debug('Objectmodel changed')
         await self._mesh_compensation_status(old_om=old_om)
