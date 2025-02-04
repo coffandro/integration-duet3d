@@ -228,28 +228,19 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _duet_on_objectmodel(self, old_om) -> None:
         """Handle Objectmodel changes."""
         self.logger.debug('Objectmodel changed')
+
+        await self._update_printer_status()
+        await self._update_filament_sensor()
         await self._mesh_compensation_status(old_om=old_om)
+
         try:
             await self._update_temperatures()
         except KeyError:
             self.printer.bed_temperature.actual = 0.0
             self.printer.tool_temperatures[0].actual = 0.0
 
-        old_printer_state = self.printer.status
-        await self._map_duet_state_to_printer_status()
-
-        if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
-            self.printer.job_info.cancelled = True
-        elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
-            if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
-                # setting 'finished' will clear 'started'
-                self.printer.job_info.finished = True
-                self.printer.job_info.progress = 100.0
-
         if await self._is_printing():
             await self._update_job_info()
-
-        await self._update_filament_sensor()
 
     @async_task
     async def _duet_printer_task(self):
@@ -606,6 +597,18 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except KeyError:
             self.printer.cpu_info.temp = 0.0
         self.printer.cpu_info.memory = psutil.virtual_memory().percent
+
+    async def _update_printer_status(self) -> None:
+        old_printer_state = self.printer.status
+        await self._map_duet_state_to_printer_status()
+
+        if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
+            self.printer.job_info.cancelled = True
+        elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
+            if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
+                # setting 'finished' will clear 'started'
+                self.printer.job_info.finished = True
+                self.printer.job_info.progress = 100.0
 
     @async_task
     async def _connector_status_task(self) -> None:
