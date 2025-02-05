@@ -324,7 +324,31 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     @async_task
     async def deferred_gcode(self, event: GcodeDemandData) -> None:
-        """Defer the GCode event."""
+        """
+        Defer the GCode event.
+
+        List of GCodes received from SP
+        M104 S1 Tool heater on
+        M140 S1 Bed heater on
+        M106 Fan on
+        M107 Fan off
+        M221 S1 control flow rate
+        M220 S1 control speed factor
+        G91
+        G1 E10
+        G90
+        G1 X10
+        G1 Y10
+        G1 Z10
+        G28 Z
+        G28 XY
+        G29
+        M18
+        M17
+        M190
+        M109
+        M155 # not supported by reprapfirmware
+        """
         self.logger.debug("Received Gcode: {!r}".format(event.list))
 
         gcode = GCodeBlock().parse(event.list)
@@ -361,48 +385,29 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     ),
                 )
             elif item.code == 'M997':
-                # perform self upgrade
-                self.logger.info('Performing self upgrade')
-                try:
-                    subprocess.check_call(
-                        [
-                            sys.executable,
-                            '-m',
-                            'pip',
-                            'install',
-                            '--upgrade',
-                            'meltingplot.duet_simplyprint_connector',
-                        ],
-                    )
-                except subprocess.CalledProcessError as e:
-                    self.logger.error('Error upgrading: {0}'.format(e))
-                self.logger.info("Restarting API")
-                # Since the API runs as a systemd service, we can restart it by terminating the process.
-                raise KeyboardInterrupt()
+                await self._perform_self_upgrade()
             else:
                 response.append('{!s} G-Code blocked'.format(item.code))
 
-        # List of GCodes received from SP
-        # M104 S1 Tool heater on
-        # M140 S1 Bed heater on
-        # M106 Fan on
-        # M107 Fan off
-        # M221 S1 control flow rate
-        # M220 S1 control speed factor
-        # G91
-        # G1 E10
-        # G90
-        # G1 X10
-        # G1 Y10
-        # G1 Z10
-        # G28 Z
-        # G28 XY
-        # G29
-        # M18
-        # M17
-        # M190
-        # M109
-        # M155 # not supported by reprapfirmware
+    async def _perform_self_upgrade(self) -> None:
+        """Perform self-upgrade and restart the API."""
+        self.logger.info('Performing self upgrade')
+        try:
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    '-m',
+                    'pip',
+                    'install',
+                    '--upgrade',
+                    'meltingplot.duet_simplyprint_connector',
+                ],
+            )
+        except subprocess.CalledProcessError as e:
+            self.logger.error('Error upgrading: {0}'.format(e))
+        self.logger.info("Restarting API")
+        # Since the API runs as a systemd service, we can restart it by terminating the process.
+        raise KeyboardInterrupt()
 
     async def on_gcode(self, event: GcodeDemandData) -> None:
         """
