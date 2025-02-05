@@ -170,7 +170,7 @@ class RepRapFirmware():
 
         await self._ensure_session()
 
-        url = '{0}/rr_model'.format(self.address)
+        url = f"{self.address}/rr_model"
 
         flags = []
 
@@ -186,8 +186,8 @@ class RepRapFirmware():
         if include_obsolete:
             flags.append('o')
 
-        flags.append('d{:d}'.format(depth))
-        flags.append('a{:d}'.format(array))
+        flags.append(f"d{depth}")
+        flags.append(f"a{array}")
 
         params = {
             'key': key if key is not None else '',
