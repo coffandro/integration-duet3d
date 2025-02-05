@@ -646,12 +646,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except (KeyError, TypeError):
             printer_state = 'disconnected'
 
-        # SP is sensitive to printer status while printing
-        # so we need to differentiate between printer status while printing and not printing
-        if await self._is_printing():
-            self.printer.status = duet_state_simplyprint_status_while_printing_mapping[printer_state]
-        else:
-            self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
+        status_mapping = (
+            duet_state_simplyprint_status_while_printing_mapping
+            if await self._is_printing() else duet_state_simplyprint_status_mapping
+        )
+
+        self.printer.status = status_mapping.get(printer_state, PrinterStatus.OFFLINE)
 
     async def _update_filament_sensor(self) -> None:
         filament_monitors = self.duet.om.get('sensors', {}).get('filamentMonitors', [])
