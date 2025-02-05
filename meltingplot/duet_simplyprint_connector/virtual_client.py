@@ -633,12 +633,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Task to gather connector infos and send data to SimplyPrint."""
         while not self._is_stopped:
             await self._update_cpu_and_memory_info()
-
-            netinfo = get_local_ip_and_mac()
-            self.printer.info.local_ip = netinfo.ip
-            self.printer.info.mac = netinfo.mac
-
+            self._update_network_info()
             await asyncio.sleep(120)
+
+    def _update_network_info(self) -> None:
+        """Update the network information."""
+        netinfo = get_local_ip_and_mac()
+        self.printer.info.local_ip = netinfo.ip
+        self.printer.info.mac = netinfo.mac
 
     async def _map_duet_state_to_printer_status(self) -> None:
         try:
