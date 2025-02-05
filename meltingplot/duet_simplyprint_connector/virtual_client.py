@@ -435,15 +435,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     name=f"0:/gcodes/{event.file_name}",
                     timeout=aiohttp.ClientTimeout(total=10),
                 )
+                if response['err'] == 0:
+                    break
             except (
                 aiohttp.ClientConnectionError,
                 TimeoutError,
                 asyncio.TimeoutError,
             ):
-                response = {'err': 1}  # timeout
-
-            if response['err'] == 0:
-                break
+                pass
 
             timeleft = 10 - ((timeout - time.time()) * 0.025)
             self.printer.file_progress.percent = min(99.9, (90.0 + timeleft))
