@@ -246,8 +246,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def _duet_on_objectmodel(self, old_om) -> None:
         """Handle Objectmodel changes."""
-        self.logger.debug('Objectmodel changed')
-
         await self._update_printer_status()
         await self._update_filament_sensor()
         await self._mesh_compensation_status(old_om=old_om)
