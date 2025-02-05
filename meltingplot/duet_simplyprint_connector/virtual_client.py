@@ -844,22 +844,24 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 connect=30,
                 sock_read=0,
                 sock_connect=30,
-                ),
+            ),
         ) as session:
             while not self._is_stopped and self._webcam_distribution_task_handle is not None:
-                try:
-                    async with session.get(self.config.webcam_uri) as response:
-                        if response.headers['Content-Type'] == 'image/jpeg':
-                            await self._handle_image_content(response)
-                        elif 'multipart' in response.headers['Content-Type'].lower():
-                            await self._handle_multipart_content(response)
-                        else:
-                            self.logger.debug(
-                                'Unsupported content type: {!s}'.format(response.headers['Content-Type']),
-                            )
-                except (aiohttp.ClientError, asyncio.TimeoutError):
-                    self.logger.debug('Failed to fetch webcam image')
-                    await asyncio.sleep(10)
+                await self._fetch_webcam_frame(session)
+
+    async def _fetch_webcam_frame(self, session: aiohttp.ClientSession) -> None:
+        try:
+            async with session.get(self.config.webcam_uri) as response:
+                content_type = response.headers['Content-Type'].lower()
+                if content_type == 'image/jpeg':
+                    await self._handle_image_content(response)
+                elif 'multipart' in content_type:
+                    await self._handle_multipart_content(response)
+                else:
+                    self.logger.debug('Unsupported content type: {!s}'.format(response.headers['Content-Type']))
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            self.logger.debug('Failed to fetch webcam image')
+            await asyncio.sleep(10)
 
     @async_task
     async def _webcam_distribution_task(self) -> None:
@@ -895,11 +897,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         event: WebcamSnapshotDemandData,
     ) -> None:
         """Take a snapshot from the webcam."""
-        # From Javad
-        # There is an edge case for the `WebcamSnapshotEvent` where and `id` and optional `endpoint` can be provided,
-        # in which case a request to a HTTP endpoint can be sent, the library implements
-        # `SimplyPrintApi.post_snapshot` you can call if you want to implement job state images.
-
         self._webcam_timeout = time.time() + 10
         if self._webcam_distribution_task_handle is None and self.config.webcam_uri is not None:
             self._webcam_distribution_task_handle = await self._webcam_distribution_task()
