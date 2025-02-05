@@ -483,8 +483,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.percent = 0.0
 
         # Initiate the file progress task to send updates every 10 seconds.
-        # This helps prevent timeouts on clients with low bandwidth or slow connections,
-        # as SimplyPrint.io has a timeout of 30 seconds.
         await self._fileprogress_task()
 
         with tempfile.NamedTemporaryFile(suffix='.gcode') as f:
@@ -500,10 +498,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
             while retries > 0:
                 try:
-                    # Ensure progress updates are sent during the upload process,
-                    # as uploading large files (e.g., 1 GB) can take significant time on a Duet2 Wifi.
+                    # Ensure progress updates are sent during the upload process.
                     response = await self.duet.api.rr_upload_stream(
-                        filepath='{!s}{!s}'.format(prefix, event.file_name),
+                        filepath=f'{prefix}{event.file_name}',
                         file=f,
                         progress=self._upload_file_progress,
                     )
@@ -512,10 +509,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         return
                     break
                 except aiohttp.ClientResponseError as e:
-                    if e.status == 401 or e.status == 500:
+                    if e.status in {401, 500}:
                         await self.duet.api.reconnect()
                     else:
-                        # Ensure the exception is not supressed
+                        # TODO: notify sentry
                         raise e
                 finally:
                     retries -= 1
