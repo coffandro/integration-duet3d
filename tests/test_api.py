@@ -14,6 +14,7 @@ def mock_session():
     session.post.return_value.__aenter__.return_value.read = AsyncMock(return_value=b'Response')
     session.post.return_value.__aenter__.return_value.json = AsyncMock(return_value={'err': 0})
     session.get.return_value.__aenter__.return_value.text = AsyncMock(return_value='Response')
+    session.closed = False
     return session
 
 

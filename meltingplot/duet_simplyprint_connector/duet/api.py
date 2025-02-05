@@ -102,7 +102,7 @@ class RepRapFirmware():
                 'sessionKey': 'yes',
             }
 
-            if self.session is None:
+            if self.session is None or self.session.closed:
                 self.session = aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=self.http_timeout),
                     raise_for_status=True,
@@ -129,14 +129,13 @@ class RepRapFirmware():
 
     async def close(self) -> None:
         """Close the Client Session."""
-        if self.session is not None:
+        if self.session is not None and not self.session.closed:
             await self.session.close()
             self.session = None
 
     async def disconnect(self) -> dict:
         """Disconnect from the Duet."""
-        if self.session is None:
-            return None
+        await self._ensure_session()
 
         url = '{0}/rr_disconnect'.format(self.address)
 
@@ -145,6 +144,11 @@ class RepRapFirmware():
             response = await r.json()
         await self.close()
         return response
+
+    async def _ensure_session(self) -> None:
+        """Ensure a valid session."""
+        if self.session is None or self.session.closed:
+            await self.reconnect()
 
     @reauthenticate()
     async def rr_model(
@@ -164,8 +168,7 @@ class RepRapFirmware():
             f" include_obsolete={include_obsolete}, depth={depth}, array={array}",
         )
 
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_model'.format(self.address)
 
@@ -199,8 +202,7 @@ class RepRapFirmware():
     @reauthenticate()
     async def rr_gcode(self, gcode: str, no_reply: bool = False) -> str:
         """rr_gcode Send GCode to Duet."""
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_gcode'.format(self.address)
 
@@ -219,8 +221,7 @@ class RepRapFirmware():
     @reauthenticate()
     async def rr_reply(self, nocache: bool = False) -> str:
         """rr_reply Get Reply from Duet."""
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_reply'.format(self.address)
 
@@ -241,8 +242,7 @@ class RepRapFirmware():
         chunk_size: Optional[int] = 1024,
     ) -> AsyncIterable:
         """rr_download Download File from Duet."""
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_download'.format(self.address)
 
@@ -262,8 +262,7 @@ class RepRapFirmware():
         last_modified: Optional[datetime.datetime] = None,
     ) -> object:
         """rr_upload Upload File to Duet."""
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_upload'.format(self.address)
 
@@ -295,8 +294,7 @@ class RepRapFirmware():
         progress: Optional[Callable] = None,
     ) -> object:
         """rr_upload_stream Upload File to Duet."""
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_upload'.format(self.address)
 
@@ -359,8 +357,7 @@ class RepRapFirmware():
         :return: File List
         :rtype: object
         """
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_filelist'.format(self.address)
 
@@ -388,8 +385,7 @@ class RepRapFirmware():
         :return: File Information
         :rtype: object
         """
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_fileinfo'.format(self.address)
 
@@ -415,8 +411,7 @@ class RepRapFirmware():
         :return: Error Object
         :rtype: object
         """
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_mkdir'.format(self.address)
 
@@ -450,8 +445,7 @@ class RepRapFirmware():
         :return: Error Object
         :rtype: object
         """
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_move'.format(self.address)
 
@@ -478,8 +472,7 @@ class RepRapFirmware():
         :return: Error Object
         :rtype: object
         """
-        if self.session is None:
-            await self.reconnect()
+        await self._ensure_session()
 
         url = '{0}/rr_delete'.format(self.address)
 
