@@ -143,48 +143,68 @@ class DuetPrinter():
         await self._wait_for_reply.wait()
         return self._reply
 
-    async def _fetch_objectmodel_recursive(self, *args, **kwargs) -> dict:
+    async def _fetch_objectmodel_recursive(
+        self,
+        *args,
+        key='',
+        depth=1,
+        frequently=False,
+        include_null=True,
+        verbose=True,
+        array=None,
+        **kwargs,
+    ) -> dict:
         """
         Fetch the object model recursively.
 
-        Duet2
+        Duet2:
         The implementation is recursive to fetch the object model in chunks.
         This is required because the object model is too large to fetch in a single request.
         The implementation might be slow because of the recursive nature of the function, but
         this helps to reduce the load on the duet board.
 
-        Duet3 or SBC mode (isEmulated)
+        Duet3 or SBC mode (isEmulated):
         The implementation is not recursive and fetches the object model in a single request
         starting from the second level of the object model (d=2).
         """
-        depth = kwargs.get('depth', 1)
-
         if self.sbc and depth == 2:
-            kwargs['depth'] = 99
+            depth = 99
 
         response = await self.api.rr_model(
             *args,
+            key=key,
+            depth=depth,
+            frequently=frequently,
+            include_null=include_null,
+            verbose=verbose,
+            array=array,
             **kwargs,
         )
 
-        if (depth == 1 or self.sbc is False) and isinstance(response['result'], dict):
+        if (depth == 1 or not self.sbc) and isinstance(response['result'], dict):
             for k, v in response['result'].items():
-                sub_key = f"{k}" if kwargs['key'] == '' else f"{kwargs['key']}.{k}"
-                sub_depth = (depth + 1) if isinstance(v, dict) else 99
-                sub_kwargs = dict(kwargs)
-                sub_kwargs['key'] = sub_key
-                sub_kwargs['depth'] = sub_depth
+                sub_key = f"{key}.{k}" if key else k
+                sub_depth = depth + 1 if isinstance(v, dict) else 99
                 sub_response = await self._fetch_objectmodel_recursive(
                     *args,
-                    **sub_kwargs,
+                    key=sub_key,
+                    depth=sub_depth,
+                    frequently=frequently,
+                    include_null=include_null,
+                    verbose=verbose,
+                    **kwargs,
                 )
                 response['result'][k] = sub_response['result']
         elif 'next' in response and response['next'] > 0:
-            sub_kwargs = dict(kwargs)
-            sub_kwargs['array'] = response['next']
             next_data = await self._fetch_objectmodel_recursive(
                 *args,
-                **sub_kwargs,
+                key=key,
+                depth=depth,
+                frequently=frequently,
+                include_null=include_null,
+                verbose=verbose,
+                array=response['next'],
+                **kwargs,
             )
             response['result'].extend(next_data['result'])
             response['next'] = 0
