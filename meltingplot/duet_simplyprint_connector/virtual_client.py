@@ -678,19 +678,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     pass
 
     async def _is_printing(self) -> bool:
-        printing = (
-            self.printer.status == PrinterStatus.PRINTING or self.printer.status == PrinterStatus.PAUSED
-            or self.printer.status == PrinterStatus.PAUSING or self.printer.status == PrinterStatus.RESUMING
-        )
+        """Check if the printer is currently printing."""
+        if self.printer.status in {
+            PrinterStatus.PRINTING,
+            PrinterStatus.PAUSED,
+            PrinterStatus.PAUSING,
+            PrinterStatus.RESUMING,
+        }:
+            return True
 
         try:
             job_status = self.duet.om['job']['file']
+            return 'filename' in job_status and job_status['filename'] is not None
         except (KeyError, TypeError):
             return False
-
-        printing = printing or ('filename' in job_status and job_status['filename'] is not None)
-
-        return printing
 
     async def _update_times_left(self, times_left: dict) -> None:
         self.printer.job_info.time = times_left.get('filament') or times_left.get(
