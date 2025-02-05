@@ -703,13 +703,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.job_info.time = 0
 
     async def _update_job_info(self) -> None:
-        job_status = self.duet.om['job']
+        job_status = self.duet.om.get('job', {})
 
+        await self._update_job_progress(job_status)
+        await self._update_job_times_left(job_status)
+        await self._update_job_filename(job_status)
+        await self._update_job_layer(job_status)
+
+    async def _update_job_progress(self, job_status: dict) -> None:
         try:
-            # TODO: Find another way to calculate the progress
-            total_filament_required = sum(
-                job_status['file']['filament'],
-            )
+            total_filament_required = sum(job_status['file']['filament'])
             current_filament = float(job_status['rawExtrusion'])
             self.printer.job_info.progress = min(
                 current_filament * 100.0 / total_filament_required,
@@ -719,25 +722,23 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except (TypeError, KeyError, ZeroDivisionError):
             self.printer.job_info.progress = 0.0
 
+    async def _update_job_times_left(self, job_status: dict) -> None:
         try:
             await self._update_times_left(times_left=job_status['timesLeft'])
         except (TypeError, KeyError):
             self.printer.job_info.time = 0
 
+    async def _update_job_filename(self, job_status: dict) -> None:
         try:
             filepath = job_status['file']['fileName']
-            self.printer.job_info.filename = pathlib.PurePath(
-                filepath,
-            ).name
-            if ('duration' in job_status and job_status['duration'] is not None and job_status['duration'] < 10):
-                # only set the printjob as startet if the duration is less than 10 seconds
+            self.printer.job_info.filename = pathlib.PurePath(filepath).name
+            if job_status.get('duration', 0) < 10:
                 self.printer.job_info.started = True
         except (TypeError, KeyError):
-            # SP is maybe keeping track of print jobs via the file name
-            # self.printer.job_info.filename = None
             pass
 
-        self.printer.job_info.layer = job_status['layer'] if 'layer' in job_status else 0
+    async def _update_job_layer(self, job_status: dict) -> None:
+        self.printer.job_info.layer = job_status.get('layer', 0)
 
     async def tick(self, _) -> None:
         """Update the client state."""
