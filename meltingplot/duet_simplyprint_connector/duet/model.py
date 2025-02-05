@@ -145,7 +145,7 @@ class DuetPrinter():
         compensation = self.om['move']['compensation']
         heightmap = io.BytesIO()
 
-        async for chunk in self.duet.api.rr_download(filepath=compensation['file']):
+        async for chunk in self.api.rr_download(filepath=compensation['file']):
             heightmap.write(chunk)
 
         heightmap.seek(0)
