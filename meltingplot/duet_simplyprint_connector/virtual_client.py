@@ -142,6 +142,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.logger.info('Initializing the client')
 
+        self._initialize_duet()
+        self._initialize_webcam()
+        self._initialize_tasks()
+
+        await self._initialize_printer_info()
+
+    def _initialize_duet(self) -> None:
+        """Initialize the Duet printer."""
         duet_api = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
@@ -158,18 +166,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
+    def _initialize_webcam(self) -> None:
+        """Initialize the webcam settings."""
         self._webcam_timeout = 0
         self._webcam_distribution_task_handle = None
         self._requested_webcam_snapshots = asyncio.Queue()
         self._webcam_frame = asyncio.Queue(maxsize=3)
 
+    def _initialize_tasks(self) -> None:
+        """Initialize background tasks."""
         self._background_task = set()
         self._is_stopped = False
-
-        await self._initialize_printer_info()
-
-        request = WebcamSnapshotRequest()
-        await self._requested_webcam_snapshots.put(request)
 
     async def _initialize_printer_info(self) -> None:
         """Initialize the printer info."""
