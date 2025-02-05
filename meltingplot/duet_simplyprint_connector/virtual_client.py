@@ -254,21 +254,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 if self._printer_timeout < time.time():
                     self.printer.status = PrinterStatus.OFFLINE
                     await self.duet.close()
-                try:
-                    if not self.duet.connected():
-                        await self.duet.connect()
-                    await self.duet.tick()
-                except (
-                    TypeError,
-                    KeyError,
-                    aiohttp.ClientConnectionError,
-                    aiohttp.ClientResponseError,
-                    asyncio.TimeoutError,
-                ):
-                    self.logger.debug('Failed to connect to Duet')
-                    await self.duet.close()
-                    await asyncio.sleep(30)
-                    continue
+                await self._ensure_duet_connection()
+                await self.duet.tick()
                 self._printer_timeout = time.time() + 60 * 5
                 await asyncio.sleep(0.5)
             except asyncio.CancelledError as e:
@@ -278,8 +265,22 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 self.logger.exception(
                     "An exception occurred while ticking duet printer",
                 )
+                # TODO: log to sentry
                 await asyncio.sleep(10)
-                continue
+
+    async def _ensure_duet_connection(self):
+        """Ensure the Duet connection is active."""
+        try:
+            if not self.duet.connected():
+                await self.duet.connect()
+        except (
+            aiohttp.ClientConnectionError,
+            aiohttp.ClientResponseError,
+            asyncio.TimeoutError,
+        ):
+            self.logger.debug('Failed to connect to Duet')
+            await self.duet.close()
+            await asyncio.sleep(30)
 
     async def on_connected(self, _) -> None:
         """Connect to Simplyprint.io."""
