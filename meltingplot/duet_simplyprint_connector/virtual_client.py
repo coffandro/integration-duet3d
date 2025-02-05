@@ -197,22 +197,29 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         network = self.duet.om['network']
 
         if self.config.duet_unique_id is None:
-            # Set the unique ID if it is not set
-            # and emit an event to notify the client
-            # that the configuration has changed
-            # TODO: Update the webcam URI
-            self.config.duet_unique_id = board['uniqueId']
+            self._set_duet_unique_id(board)
             await self.event_bus.emit(ClientConfigChangedEvent)
         else:
-            if self.config.duet_unique_id != board['uniqueId']:
-                self.logger.error(
-                    'Unique ID mismatch: {0} != {1}'.format(self.config.duet_unique_id, board['uniqueId']),
-                )
-                self.printer.status = PrinterStatus.OFFLINE
-                # TODO: Implement a search mechanism based on the unique ID
-                raise ValueError('Unique ID mismatch')
+            self._validate_duet_unique_id(board)
 
-        # the format of the machine_name should be [MANUFACTURER] [PRINTER MODEL]
+        self._set_printer_name(network)
+        self._set_firmware_info(board)
+
+    def _set_duet_unique_id(self, board: dict) -> None:
+        """Set the unique ID if it is not set and emit an event to notify the client."""
+        self.config.duet_unique_id = board['uniqueId']
+
+    def _validate_duet_unique_id(self, board: dict) -> None:
+        """Validate the unique ID."""
+        if self.config.duet_unique_id != board['uniqueId']:
+            self.logger.error(
+                'Unique ID mismatch: {0} != {1}'.format(self.config.duet_unique_id, board['uniqueId']),
+            )
+            self.printer.status = PrinterStatus.OFFLINE
+            raise ValueError('Unique ID mismatch')
+
+    def _set_printer_name(self, network: dict) -> None:
+        """Set the printer name."""
         name_search = re.search(
             r'(meltingplot)([-\. ])(MBL[ -]?[0-9]{3})([ -]{0,3})(\w{6})?[ ]?(\w+)?',
             network['name'],
@@ -224,6 +231,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         except (AttributeError, IndexError):
             self.printer.firmware.machine_name = network['name']
 
+    def _set_firmware_info(self, board: dict) -> None:
+        """Set the firmware information."""
         self.printer.firmware.name = board['firmwareName']
         self.printer.firmware.version = board['firmwareVersion']
         self.printer.set_api_info("meltingplot.duet-simplyprint-connector", __version__)
