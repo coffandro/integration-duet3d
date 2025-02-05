@@ -622,11 +622,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
             self.printer.job_info.cancelled = True
-        elif self.printer.status == PrinterStatus.OPERATIONAL:  # The machine is on but has nothing to do
+        elif self.printer.status == PrinterStatus.OPERATIONAL:
             if self.printer.job_info.started or old_printer_state == PrinterStatus.PRINTING:
-                # setting 'finished' will clear 'started'
-                self.printer.job_info.finished = True
-                self.printer.job_info.progress = 100.0
+                await self._mark_job_as_finished()
+
+    async def _mark_job_as_finished(self) -> None:
+        """Mark the current job as finished."""
+        self.printer.job_info.finished = True
+        self.printer.job_info.progress = 100.0
 
     @async_task
     async def _connector_status_task(self) -> None:
