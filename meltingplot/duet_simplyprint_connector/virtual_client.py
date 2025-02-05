@@ -530,7 +530,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def on_start_print(self, _) -> None:
         """Start the print job."""
         await self.duet.gcode(
-            'M23 "0:/gcodes/{!s}"'.format(self.printer.job_info.filename),
+            f'M23 "0:/gcodes/{self.printer.job_info.filename}"',
         )
         await self.duet.gcode('M24')
 
