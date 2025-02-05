@@ -15,15 +15,11 @@ from strenum import CamelCaseStrEnum, StrEnum
 from .api import RepRapFirmware
 
 
-def merge_dictionary(source, destination):  # noqa: C901
+def merge_dictionary(source, destination):
     """Merge multiple dictionaries."""
-    # {'a': 1, 'b': {'c': 2}},
-    # {'b': {'c': 3}},
-    # {'a': 1, 'b': {'c': 3}}
-
     result = {}
     try:
-        dk = dict(destination)
+        destination_dict = dict(destination)
     except TypeError:
         return None
 
@@ -33,28 +29,17 @@ def merge_dictionary(source, destination):  # noqa: C901
         elif isinstance(value, list):
             result[key] = value
             dest_value = destination.get(key, [])
-            src_len = len(value)
-            dest_len = len(dest_value)
-            if dest_len == 0:
-                result[key] = value
+            if len(dest_value) == 0:
                 continue
-            if src_len > dest_len:
-                raise ValueError(
-                    "List length mismatch in merge for key: {!s} src: {!s} dest: {!s}".format(key, value, dest_value),
-                )
-            if src_len < dest_len:
-                result[key] = dest_value
-                continue
-
+            if len(value) > len(dest_value):
+                raise ValueError(f"List length mismatch in merge for key: {key} src: {value} dest: {dest_value}")
             for idx, item in enumerate(value):
-                if dest_value[idx] is None:
-                    continue
-                if isinstance(item, dict):
+                if dest_value[idx] is not None and isinstance(item, dict):
                     result[key][idx] = merge_dictionary(item, dest_value[idx])
         else:
             result[key] = destination.get(key, value)
-        dk.pop(key, None)
-    result.update(dk)
+        destination_dict.pop(key, None)
+    result.update(destination_dict)
     return result
 
 
