@@ -574,23 +574,21 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Check if the cookie is set and set it if it is not."""
         self.logger.debug('Checking if cookie is set')
         try:
-            async for chunk in self.duet.api.rr_download(filepath='0:/sys/simplyprint-connector.json'):
+            async for _ in self.duet.api.rr_download(filepath='0:/sys/simplyprint-connector.json'):
                 break
             await self.duet.api.rr_delete(filepath='0:/sys/simplyprint-connector.json')
         except aiohttp.client_exceptions.ClientResponseError:
             self.logger.debug('Cookie not set, setting cookie')
 
+        cookie_data = {
+            'hostname': self.printer.info.hostname,
+            'ip': self.printer.info.local_ip,
+            'mac': self.printer.info.mac,
+        }
+        cookie_json = json.dumps(cookie_data).encode('utf-8')
         await self.duet.api.rr_upload_stream(
             filepath='0:/sys/simplyprint-connector.json',
-            file=io.BytesIO(
-                json.dumps(
-                    {
-                        'hostname': self.printer.info.hostname,
-                        'ip': self.printer.info.local_ip,
-                        'mac': self.printer.info.mac,
-                    },
-                ).encode(),
-            ),
+            file=io.BytesIO(cookie_json),
         )
 
     @async_task
