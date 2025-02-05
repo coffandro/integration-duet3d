@@ -1,6 +1,8 @@
 """Duet Printer model class."""
 
 import asyncio
+import csv
+import io
 import logging
 from enum import auto
 
@@ -137,6 +139,41 @@ class DuetPrinter():
         if no_reply:
             return ''
         return await self.reply()
+
+    async def heightmap(self) -> dict:
+        """Get the heightmap from the printer."""
+        compensation = self.om['move']['compensation']
+        heightmap = io.BytesIO()
+
+        async for chunk in self.duet.api.rr_download(filepath=compensation['file']):
+            heightmap.write(chunk)
+
+        heightmap.seek(0)
+        heightmap = heightmap.read().decode('utf-8')
+
+        self.logger.debug('Mesh data: {!s}'.format(heightmap))
+
+        mesh_data_csv = csv.reader(heightmap.splitlines()[3:], dialect='unix')
+
+        mesh_data = []
+        z_min, z_max = float('inf'), float('-inf')
+
+        for row in mesh_data_csv:
+            x_line = [float(x.strip()) for x in row]
+            z_min = min(z_min, *x_line)
+            z_max = max(z_max, *x_line)
+            mesh_data.append(x_line)
+
+        return {
+            'type': 'rectangular' if compensation['liveGrid']['radius'] == -1 else 'circular',
+            'x_min': compensation['liveGrid']['mins'][0],
+            'x_max': compensation['liveGrid']['maxs'][0],
+            'y_min': compensation['liveGrid']['mins'][1],
+            'y_max': compensation['liveGrid']['maxs'][1],
+            'z_min': z_min,
+            'z_max': z_max,
+            'mesh_data': mesh_data,
+        }
 
     async def reply(self) -> str:
         """Get the last reply from the printer."""

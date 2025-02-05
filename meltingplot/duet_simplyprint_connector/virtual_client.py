@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import csv
 import io
 import json
 import pathlib
@@ -599,16 +598,10 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     @async_task
     async def _mesh_compensation_status(self, old_om) -> None:
         """Task to check for mesh compensation changes and send mesh data to SimplyPrint."""
-        old_om = old_om or {}
-        old_compensation = old_om.get('move', {}).get('compensation')
-        compensation = self.duet.om['move']['compensation']
+        old_compensation = old_om.get('move', {}).get('compensation', {})
+        compensation = self.duet.om.get('move', {}).get('compensation', {})
 
-        if (
-            compensation is not None and 'file' in compensation and compensation['file'] is not None and (
-                old_compensation is None or 'file' not in old_compensation
-                or old_compensation['file'] != compensation['file']
-            )
-        ):
+        if compensation.get('file') and old_compensation.get('file') != compensation['file']:
             try:
                 await self._send_mesh_data()
             except Exception as e:
@@ -926,92 +919,13 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         raise KeyboardInterrupt()
 
     async def _send_mesh_data(self) -> None:
-        compensation = self.duet.om['move']['compensation']
-        self.logger.debug('Send mesh data called')
-        self.logger.debug('Compensation: {!s}'.format(compensation))
-
-        # move.compensation.file
-        # if is not none - mesh is loaded
-
-        # M409 K"move.compensation.liveGrid"
-        # {
-        #     "key": "move.compensation.liveGrid",
-        #     "flags": "",
-        #     "result": {
-        #         "axes": [
-        #             "X",
-        #             "Y"
-        #         ],
-        #         "maxs": [
-        #             842.4,
-        #             379.5
-        #         ],
-        #         "mins": [
-        #             8.6,
-        #             25.5
-        #         ],
-        #         "radius": -1,
-        #         "spacings": [
-        #             49,
-        #             50.6
-        #         ]
-        #     }
-        # }
-
-        # the mesh data is stored in an csv file on the duet board
-        # we need to download the file and send it to simplyprint
-        # the format is as follows:
-        # first row contains a comment
-        # second row contains the headers for the mesh shape
-        # third row contains the data for the mesh shape
-        # consecutive rows contain the mesh data as matrix
-
-        self.logger.debug('Downloading mesh data from duet')
-        heightmap = io.BytesIO()
-
-        async for chunk in self.duet.api.rr_download(filepath=compensation['file']):
-            heightmap.write(chunk)
-
-        heightmap.seek(0)
-        heightmap = heightmap.read().decode('utf-8')
-
-        self.logger.debug('Mesh data: {!s}'.format(heightmap))
-
-        mesh_data_csv = csv.reader(heightmap.splitlines()[3:], dialect='unix')
-
-        mesh_data = []
-
-        z_min = 100
-        z_max = 0
-
-        for row in mesh_data_csv:
-            x_line = []
-            for x in row:
-                value = float(x.strip())
-                z_min = min(z_min, value)
-                z_max = max(z_max, value)
-                x_line.append(value)
-            mesh_data.append(x_line)
-
-        bed = {
-            # volume.formFactor 0..1 string The form factor of the printer’s bed,
-            # valid values are “rectangular” and “circular”
-            'type': 'rectangular' if compensation['liveGrid']['radius'] == -1 else 'circular',
-            'x_min': compensation['liveGrid']['mins'][0],
-            'x_max': compensation['liveGrid']['maxs'][0],
-            'y_min': compensation['liveGrid']['mins'][1],
-            'y_max': compensation['liveGrid']['maxs'][1],
-            'z_min': z_min,
-            'z_max': z_max,
-        }
+        bed = await self.duet.heightmap()
 
         data = {
             'mesh_min': [bed['y_min'], bed['x_min']],
             'mesh_max': [bed['y_max'], bed['x_max']],
-            'mesh_matrix': mesh_data,
+            'mesh_matrix': bed['mesh_data'],
         }
-
-        self.logger.debug('Mesh data: {!s}'.format(data))
 
         # mesh data is matrix of y,x and z
         await self.send(
