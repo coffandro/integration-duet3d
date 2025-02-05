@@ -550,23 +550,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     async def _update_temperatures(self) -> None:
         """Update the printer temperatures."""
         heaters = self.duet.om['heat']['heaters']
-        # TODO make it aware of more than one bed heater
         bed_heater_index = self.duet.om['heat']['bedHeaters'][0]
 
         self.printer.bed_temperature.actual = heaters[bed_heater_index]['current']
-        if heaters[0]['state'] != 'off':
-            self.printer.bed_temperature.target = heaters[bed_heater_index]['active']
-        else:
-            self.printer.bed_temperature.target = 0.0
+        self.printer.bed_temperature.target = (
+            heaters[bed_heater_index]['active'] if heaters[0]['state'] != 'off' else 0.0
+        )
 
         for tool_idx, tool_temperature in enumerate(self.printer.tool_temperatures):
             heater_idx = self.duet.om['tools'][tool_idx]['heaters'][0]
             tool_temperature.actual = heaters[heater_idx]['current']
-
-            if heaters[1]['state'] != 'off':
-                tool_temperature.target = heaters[heater_idx]['active']
-            else:
-                tool_temperature.target = 0.0
+            tool_temperature.target = (heaters[heater_idx]['active'] if heaters[1]['state'] != 'off' else 0.0)
 
         self.printer.ambient_temperature.ambient = 20
 
