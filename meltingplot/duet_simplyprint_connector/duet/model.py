@@ -220,7 +220,7 @@ class DuetPrinter():
 
         return response
 
-    async def _handle_om_changes(self, changes: dict):
+    async def _handle_om_changes(self, changes: dict) -> None:
         """Handle object model changes."""
         if 'reply' in changes:
             self._reply = await self.api.rr_reply()
@@ -242,40 +242,56 @@ class DuetPrinter():
             )
             self.om[key] = changed_obj['result']
 
-    async def tick(self):
+    async def tick(self) -> None:
         """Tick the printer."""
         if not self.connected():
             await self.connect()
+
         if self.om is None:
-            # fetch initial full object model
-            result = await self._fetch_full_status()
-            self.om = result['result']
-            self.events.emit(DuetModelEvents.objectmodel, None)
+            await self._initialize_object_model()
         else:
-            # fetch partial object model
-            result = await self.api.rr_model(
-                key='',
-                depth=99,
-                frequently=True,
-                include_null=True,
-                verbose=True,
-            )
-            # compare the dicts and return the difference
-            changes = {}
-            for key, value in result['result']['seqs'].items():
-                if key not in self.seqs or self.seqs[key] != value:
-                    changes[key] = value
-            self.seqs = result['result']['seqs']
-            old_om = dict(self.om)
-            try:
-                self.om = merge_dictionary(self.om, result['result'])
-                if changes:
-                    await self._handle_om_changes(changes)
-                self.events.emit(DuetModelEvents.objectmodel, old_om)
-            except (TypeError, KeyError):
-                self.logger.exception("Failed to update object model - fetch full model")
-                self.logger.debug(f"Old OM: {old_om} result {result['result']}")
-                self.om = None
+            await self._update_object_model()
+
+    async def _initialize_object_model(self) -> None:
+        """Initialize the object model by fetching the full status."""
+        result = await self._fetch_full_status()
+        if result is None or 'result' not in result:
+            return
+        self.om = result['result']
+        self.events.emit(DuetModelEvents.objectmodel, None)
+
+    async def _update_object_model(self) -> None:
+        """Update the object model by fetching partial updates."""
+        result = await self.api.rr_model(
+            key='',
+            depth=99,
+            frequently=True,
+            include_null=True,
+            verbose=True,
+        )
+        if result is None or 'result' not in result:
+            return
+        changes = self._detect_om_changes(result['result']['seqs'])
+        old_om = dict(self.om)
+        try:
+            self.om = merge_dictionary(self.om, result['result'])
+            if changes:
+                await self._handle_om_changes(changes)
+            self.events.emit(DuetModelEvents.objectmodel, old_om)
+        except (TypeError, KeyError, ValueError):
+            self.logger.exception("Failed to update object model - fetch full model")
+            self.logger.debug(f"Old OM: {old_om} result {result['result']}")
+            self.om = None
+            # TODO: send to sentry
+
+    def _detect_om_changes(self, new_seqs) -> dict:
+        """Detect changes between the current and new sequences."""
+        changes = {}
+        for key, value in new_seqs.items():
+            if key not in self.seqs or self.seqs[key] != value:
+                changes[key] = value
+        self.seqs = new_seqs
+        return changes
 
     async def _http_503_callback(self, error: aiohttp.ClientResponseError):
         """503 callback."""
