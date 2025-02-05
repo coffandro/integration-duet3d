@@ -122,7 +122,7 @@ class DuetPrinter():
 
     def connected(self) -> bool:
         """Check if the printer is connected."""
-        if self.api.session is None:
+        if self.api.session is None or self.api.session.closed:
             return False
         return True
 

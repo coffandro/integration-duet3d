@@ -28,11 +28,10 @@ def reauthenticate(retries=3):
                     status['retries'] -= 1
                     await asyncio.sleep(5**(retries - status['retries']))
                 except aiohttp.ClientResponseError as e:
-                    status_code = e.status
                     status['retries'] -= 1
-                    if status_code in args[0].callbacks:
-                        await args[0].callbacks[status_code](e)
-                    elif status_code == 401:
+                    if e.status in args[0].callbacks:
+                        await args[0].callbacks[e.status](e)
+                    elif e.status == 401:
                         args[0].logger.error(
                             'Unauthorized  while requesting {!s} - retry'.format(e.request_info),
                         )
