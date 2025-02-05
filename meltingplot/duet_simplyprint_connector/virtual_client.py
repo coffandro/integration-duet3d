@@ -654,28 +654,26 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.status = duet_state_simplyprint_status_mapping[printer_state]
 
     async def _update_filament_sensor(self) -> None:
-        filament_monitors = self.duet.om['sensors']['filamentMonitors']
+        filament_monitors = self.duet.om.get('sensors', {}).get('filamentMonitors', [])
 
         for monitor in filament_monitors:
-            if monitor['enableMode'] > 0:
+            if monitor.get('enableMode', 0) > 0:
                 self.printer.settings.has_filament_settings = True
-                if monitor['status'] == 'ok':
+                if monitor.get('status') == 'ok':
                     self.printer.filament_sensor.state = FilamentSensorEnum.LOADED
                 else:
                     self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                     break  # only one sensor is needed
 
-                try:
-                    if monitor['calibrated'] is None or self.printer.status != PrinterStatus.PAUSED:
-                        continue
-                    if monitor['calibrated']['percentMin'] < monitor['configured']['percentMin']:
+                calibrated = monitor.get('calibrated')
+                configured = monitor.get('configured', {})
+                if calibrated and self.printer.status == PrinterStatus.PAUSED:
+                    if calibrated.get('percentMin', 0) < configured.get('percentMin', 0):
                         self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                         break  # only one sensor is needed
-                    if monitor['calibrated']['percentMax'] < monitor['configured']['percentMax']:
+                    if calibrated.get('percentMax', 0) < configured.get('percentMax', 0):
                         self.printer.filament_sensor.state = FilamentSensorEnum.RUNOUT
                         break  # only one sensor is needed
-                except KeyError:
-                    pass
 
     async def _is_printing(self) -> bool:
         """Check if the printer is currently printing."""
