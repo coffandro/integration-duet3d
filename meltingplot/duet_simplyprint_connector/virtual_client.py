@@ -693,14 +693,9 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         return printing
 
     async def _update_times_left(self, times_left: dict) -> None:
-        if 'filament' in times_left:
-            self.printer.job_info.time = times_left['filament']
-        elif 'slicer' in times_left:
-            self.printer.job_info.time = times_left['slicer']
-        elif 'file' in times_left:
-            self.printer.job_info.time = times_left['file']
-        else:
-            self.printer.job_info.time = 0
+        self.printer.job_info.time = times_left.get('filament') or times_left.get(
+            'slicer',
+        ) or times_left.get('file') or 0
 
     async def _update_job_info(self) -> None:
         job_status = self.duet.om.get('job', {})
