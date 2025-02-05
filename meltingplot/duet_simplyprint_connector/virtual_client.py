@@ -388,6 +388,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 await self._perform_self_upgrade()
             else:
                 response.append('{!s} G-Code blocked'.format(item.code))
+                # TODO: notify sentry
 
     async def _perform_self_upgrade(self) -> None:
         """Perform self-upgrade and restart the API."""
@@ -405,6 +406,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             )
         except subprocess.CalledProcessError as e:
             self.logger.error('Error upgrading: {0}'.format(e))
+            # TODO: notify sentry
         self.logger.info("Restarting API")
         # Since the API runs as a systemd service, we can restart it by terminating the process.
         raise KeyboardInterrupt()
@@ -422,7 +424,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
 
-    async def _auto_start_file(self, event) -> None:
+    async def _auto_start_file(self, event: FileDemandData) -> None:
         """Auto start the file after it has been uploaded."""
         self.printer.job_info.filename = event.file_name
         timeout = time.time() + 400  # seconds
@@ -430,13 +432,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         while timeout > time.time():
             try:
                 response = await self.duet.api.rr_fileinfo(
-                    name="0:/gcodes/{!s}".format(event.file_name),
+                    name=f"0:/gcodes/{event.file_name}",
                     timeout=aiohttp.ClientTimeout(total=10),
                 )
             except (
                 aiohttp.ClientConnectionError,
                 TimeoutError,
-                asyncio.exceptions.TimeoutError,
                 asyncio.TimeoutError,
             ):
                 response = {'err': 1}  # timeout
