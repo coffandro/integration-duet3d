@@ -141,11 +141,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.logger.info('Initializing the client')
 
-        self._initialize_duet()
-        self._initialize_webcam()
         self._initialize_tasks()
+        self._initialize_webcam()
 
         await self._initialize_printer_info()
+
+        self._initialize_duet()
 
     def _initialize_duet(self) -> None:
         """Initialize the Duet printer."""
@@ -155,6 +156,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             logger=self.logger.getChild('duet_api'),
         )
 
+        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
+
         self.duet = DuetPrinter(
             logger=self.logger.getChild('duet'),
             api=duet_api,
@@ -162,8 +165,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.duet.events.on('connect', self._duet_on_connect)
         self.duet.events.on('objectmodel', self._duet_on_objectmodel)
-
-        self._printer_timeout = time.time() + 60 * 5  # 5 minutes
 
     def _initialize_webcam(self) -> None:
         """Initialize the webcam settings."""
