@@ -1,7 +1,6 @@
 """A virtual client for the SimplyPrint.io Service."""
 
 import asyncio
-import base64
 import io
 import json
 import pathlib
@@ -13,11 +12,9 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
 
 import aiohttp
-
-import imageio.v3 as iio
 
 import psutil
 
@@ -30,91 +27,19 @@ from simplyprint_ws_client.core.ws_protocol.messages import (
     GcodeDemandData,
     MeshDataMsg,
     PrinterSettingsMsg,
-    StreamMsg,
     WebcamSnapshotDemandData,
 )
 from simplyprint_ws_client.shared.files.file_download import FileDownload
 from simplyprint_ws_client.shared.hardware.physical_machine import PhysicalMachine
-
-from yarl import URL
 
 from . import __version__
 from .duet.api import RepRapFirmware
 from .duet.model import DuetPrinter
 from .gcode import GCodeBlock
 from .network import get_local_ip_and_mac
-
-duet_state_simplyprint_status_mapping = {
-    'disconnected': PrinterStatus.OFFLINE,
-    'starting': PrinterStatus.NOT_READY,
-    'updating': PrinterStatus.NOT_READY,
-    'off': PrinterStatus.OFFLINE,
-    'halted': PrinterStatus.ERROR,
-    'pausing': PrinterStatus.PAUSING,
-    'paused': PrinterStatus.PAUSED,
-    'resuming': PrinterStatus.RESUMING,
-    'cancelling': PrinterStatus.CANCELLING,
-    'processing': PrinterStatus.PRINTING,
-    'simulating': PrinterStatus.OPERATIONAL,
-    'busy': PrinterStatus.OPERATIONAL,
-    'changingTool': PrinterStatus.OPERATIONAL,
-    'idle': PrinterStatus.OPERATIONAL,
-}
-
-duet_state_simplyprint_status_while_printing_mapping = {
-    'disconnected': PrinterStatus.OFFLINE,
-    'starting': PrinterStatus.NOT_READY,
-    'updating': PrinterStatus.NOT_READY,
-    'off': PrinterStatus.OFFLINE,
-    'halted': PrinterStatus.ERROR,
-    'pausing': PrinterStatus.PAUSING,
-    'paused': PrinterStatus.PAUSED,
-    'resuming': PrinterStatus.RESUMING,
-    'cancelling': PrinterStatus.CANCELLING,
-    'processing': PrinterStatus.PRINTING,
-    'simulating': PrinterStatus.NOT_READY,
-    'busy': PrinterStatus.PRINTING,
-    'changingTool': PrinterStatus.PRINTING,
-    'idle': PrinterStatus.OPERATIONAL,
-}
-
-
-def async_task(func):
-    """Run a function as a task."""
-
-    async def wrapper(*args, **kwargs):
-        task = args[0].event_loop.create_task(func(*args, **kwargs))
-        args[0]._background_task.add(task)
-        task.add_done_callback(args[0]._background_task.discard)
-        return task
-
-    return wrapper
-
-
-def async_supress(func):
-    """Suppress exceptions in an async function."""
-
-    async def wrapper(*args, **kwargs):
-        try:
-            await func(*args, **kwargs)
-        except asyncio.CancelledError as e:
-            await args[0].duet.close()
-            raise e
-        except Exception as e:
-            args[0].logger.exception(
-                "An exception occurred while running an async function",
-                exc_info=e,
-            )
-
-    return wrapper
-
-
-@dataclass
-class WebcamSnapshotRequest():
-    """Webcam snapshot request."""
-
-    snapshot_id: str = None
-    endpoint: Union[str, URL, None] = None
+from .state import map_duet_state_to_printer_status
+from .task import async_supress, async_task
+from .webcam import Webcam
 
 
 @dataclass
@@ -132,6 +57,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
     """A Websocket client for the SimplyPrint.io Service."""
 
     duet: DuetPrinter
+    _webcam: Webcam
 
     def __init__(self, *args, **kwargs) -> None:
         """Initialize the client."""
@@ -143,7 +69,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         try:
             await self._initialize_tasks()
-            await self._initialize_webcam()
+            self._webcam = Webcam(client=self, uri=self.config.webcam_uri)
             await self._initialize_printer_info()
             await self._initialize_duet()
         except Exception as e:
@@ -175,13 +101,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
         self.duet.events.on('connect', self._duet_on_connect)
         self.duet.events.on('objectmodel', self._duet_on_objectmodel)
-
-    async def _initialize_webcam(self) -> None:
-        """Initialize the webcam settings."""
-        self._webcam_timeout = 0
-        self._webcam_distribution_task_handle = None
-        self._requested_webcam_snapshots = asyncio.Queue()
-        self._webcam_frame = asyncio.Queue(maxsize=3)
 
     async def _initialize_tasks(self) -> None:
         """Initialize background tasks."""
@@ -620,7 +539,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def _update_printer_status(self) -> None:
         old_printer_state = self.printer.status
-        await self._map_duet_state_to_printer_status()
+        is_printing = await self._is_printing()
+        self.printer.status = map_duet_state_to_printer_status(self.duet.om, is_printing)
 
         if self.printer.status == PrinterStatus.CANCELLING and old_printer_state == PrinterStatus.PRINTING:
             self.printer.job_info.cancelled = True
@@ -646,19 +566,6 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         netinfo = get_local_ip_and_mac()
         self.printer.info.local_ip = netinfo.ip
         self.printer.info.mac = netinfo.mac
-
-    async def _map_duet_state_to_printer_status(self) -> None:
-        try:
-            printer_state = self.duet.om['state']['status']
-        except (KeyError, TypeError):
-            printer_state = 'disconnected'
-
-        status_mapping = (
-            duet_state_simplyprint_status_while_printing_mapping
-            if await self._is_printing() else duet_state_simplyprint_status_mapping
-        )
-
-        self.printer.status = status_mapping.get(printer_state, PrinterStatus.OFFLINE)
 
     async def _update_filament_sensor(self) -> None:
         filament_monitors = self.duet.om.get('sensors', {}).get('filamentMonitors', [])
@@ -692,11 +599,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         }:
             return True
 
-        try:
-            job_status = self.duet.om['job']['file']
-            return 'filename' in job_status and job_status['filename'] is not None
-        except (KeyError, TypeError):
-            return False
+        job_status = self.duet.om.get('job', {}).get('file', {})
+        return bool(job_status.get('filename'))
 
     async def _update_times_left(self, times_left: dict) -> None:
         self.printer.job_info.time = times_left.get('filament') or times_left.get(
@@ -767,142 +671,12 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Test the webcam."""
         self.printer.webcam_info.connected = (True if self.config.webcam_uri is not None else False)
 
-    async def _send_webcam_snapshot(self, image: bytes) -> None:
-        jpg_encoded = image
-        base64_encoded = base64.b64encode(jpg_encoded).decode()
-        # TODO: remove when fixed in simplyprint-ws-client
-        while self.printer.intervals.use('webcam') is False:
-            await self.printer.intervals.wait_for('webcam')
-
-        await self.send(
-            StreamMsg(base64jpg=base64_encoded),
-        )
-
-    async def _send_webcam_snapshot_to_endpoint(self, image: bytes, request: WebcamSnapshotRequest) -> None:
-        import simplyprint_ws_client.shared.sp.simplyprint_api as sp_api
-
-        self.logger.info(
-            f'Sending webcam snapshot id: {request.snapshot_id} endpoint: {request.endpoint or "Simplyprint"}',
-        )
-        await sp_api.SimplyPrintApi.post_snapshot(
-            snapshot_id=request.snapshot_id,
-            image_data=image,
-            endpoint=request.endpoint,
-        )
-
-    async def _fetch_webcam_image(self) -> bytes:
-        try:
-            raw_data = await asyncio.wait_for(self._webcam_frame.get(), timeout=60)
-        except asyncio.TimeoutError:
-            self.logger.debug("Timeout while fetching webcam image")
-            return None
-
-        img = iio.imread(
-            uri=raw_data,
-            extension='.jpeg',
-            index=None,
-        )
-
-        jpg_encoded = iio.imwrite("<bytes>", img, extension=".jpeg")
-        # rotated_img = PIL.Image.open(io.BytesIO(jpg_encoded))
-        # rotated_img.rotate(270)
-        # rotated_img.thumbnail((720, 720), resample=PIL.Image.Resampling.LANCZOS)
-        # bytes_array = io.BytesIO()
-        # rotated_img.save(bytes_array, format='JPEG')
-        # jpg_encoded = bytes_array.getvalue()
-
-        return jpg_encoded
-
-    async def _handle_multipart_content(self, response: aiohttp.ClientResponse) -> None:
-        reader = aiohttp.MultipartReader.from_response(response)
-        async for part in reader:
-            if part.headers[aiohttp.hdrs.CONTENT_TYPE] != 'image/jpeg':
-                continue
-            content = await part.read()
-            if self._webcam_frame.full():
-                await self._webcam_frame.get()
-            await self._webcam_frame.put(memoryview(content))
-
-            if self._is_stopped or self._webcam_distribution_task_handle is None:
-                break
-            # max framerate of SP is 2fps
-            await asyncio.sleep(1 / 4)
-
-    async def _handle_image_content(self, response: aiohttp.ClientResponse) -> None:
-        content = await response.read()
-        if self._webcam_frame.full():
-            await self._webcam_frame.get()
-        await self._webcam_frame.put(memoryview(content))
-
-    @async_task
-    async def _webcam_receive_task(self) -> None:
-        self.logger.debug('Webcam receive task started')
-
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(
-                total=0,  # Disable total timeout
-                connect=30,
-                sock_read=0,
-                sock_connect=30,
-            ),
-        ) as session:
-            while not self._is_stopped and self._webcam_distribution_task_handle is not None:
-                await self._fetch_webcam_frame(session)
-
-    async def _fetch_webcam_frame(self, session: aiohttp.ClientSession) -> None:
-        try:
-            async with session.get(self.config.webcam_uri) as response:
-                content_type = response.headers['Content-Type'].lower()
-                if content_type == 'image/jpeg':
-                    await self._handle_image_content(response)
-                elif 'multipart' in content_type:
-                    await self._handle_multipart_content(response)
-                else:
-                    self.logger.debug('Unsupported content type: {!s}'.format(response.headers['Content-Type']))
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            self.logger.debug('Failed to fetch webcam image')
-            await asyncio.sleep(10)
-
-    @async_task
-    async def _webcam_distribution_task(self) -> None:
-        self.logger.debug('Webcam distribution task started')
-
-        # Start the webcam receive task
-        await self._webcam_receive_task()
-
-        while not self._is_stopped and time.time() < self._webcam_timeout:
-            try:
-                if self._requested_webcam_snapshots.qsize() > 0:
-                    request = await self._requested_webcam_snapshots.get()
-                    if request.snapshot_id is not None:
-                        image = await self._fetch_webcam_image()
-                        await self._send_webcam_snapshot_to_endpoint(image=image, request=request)
-                        continue
-                    if self.printer.intervals.is_ready('webcam'):
-                        image = await self._fetch_webcam_image()
-                        await self._send_webcam_snapshot(image=image)
-                    else:
-                        await self._requested_webcam_snapshots.put(request)
-                        await self.printer.intervals.wait_for('webcam')
-                else:
-                    await asyncio.sleep(0.1)
-                # else drop the frame and grab the next one
-            except Exception:
-                self.logger.exception("Failed to distribute webcam image")
-                await asyncio.sleep(10)
-        self._webcam_distribution_task_handle = None
-
     async def on_webcam_snapshot(
         self,
         event: WebcamSnapshotDemandData,
     ) -> None:
         """Take a snapshot from the webcam."""
-        self._webcam_timeout = time.time() + 10
-        if self._webcam_distribution_task_handle is None and self.config.webcam_uri is not None:
-            self._webcam_distribution_task_handle = await self._webcam_distribution_task()
-
-        request = WebcamSnapshotRequest(snapshot_id=event.id, endpoint=event.endpoint)
-        await self._requested_webcam_snapshots.put(request)
+        await self._webcam.request_snapshot(snapshot_id=event.id, endpoint=event.endpoint)
 
     async def on_stream_off(self) -> None:
         """Turn off the webcam stream."""
