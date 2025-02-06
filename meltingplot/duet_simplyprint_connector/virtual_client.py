@@ -529,6 +529,20 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                     exc_info=e,
                 )
 
+    async def _send_mesh_data(self) -> None:
+        bed = await self.duet.heightmap()
+
+        data = {
+            'mesh_min': [bed['y_min'], bed['x_min']],
+            'mesh_max': [bed['y_max'], bed['x_max']],
+            'mesh_matrix': bed['mesh_data'],
+        }
+
+        # mesh data is matrix of y,x and z
+        await self.send(
+            MeshDataMsg(data=data),
+        )
+
     async def _update_cpu_and_memory_info(self) -> None:
         self.printer.cpu_info.usage = psutil.cpu_percent(interval=1)
         try:
@@ -688,17 +702,3 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # the api is running as a systemd service, so we can just restart the service
         # by terminating the process
         raise KeyboardInterrupt()
-
-    async def _send_mesh_data(self) -> None:
-        bed = await self.duet.heightmap()
-
-        data = {
-            'mesh_min': [bed['y_min'], bed['x_min']],
-            'mesh_max': [bed['y_max'], bed['x_max']],
-            'mesh_matrix': bed['mesh_data'],
-        }
-
-        # mesh data is matrix of y,x and z
-        await self.send(
-            MeshDataMsg(data=data),
-        )
