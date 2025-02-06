@@ -141,14 +141,19 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Initialize the client."""
         self.logger.info('Initializing the client')
 
-        self._initialize_tasks()
-        self._initialize_webcam()
+        try:
+            await self._initialize_tasks()
+            await self._initialize_webcam()
+            await self._initialize_printer_info()
+            await self._initialize_duet()
+        except Exception as e:
+            self.logger.exception(
+                "An exception occurred while initializing the client",
+                exc_info=e,
+            )
+            self.active = False
 
-        await self._initialize_printer_info()
-
-        self._initialize_duet()
-
-    def _initialize_duet(self) -> None:
+    async def _initialize_duet(self) -> None:
         """Initialize the Duet printer."""
         duet_api = RepRapFirmware(
             address=self.config.duet_uri,
@@ -166,14 +171,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.duet.events.on('connect', self._duet_on_connect)
         self.duet.events.on('objectmodel', self._duet_on_objectmodel)
 
-    def _initialize_webcam(self) -> None:
+    async def _initialize_webcam(self) -> None:
         """Initialize the webcam settings."""
         self._webcam_timeout = 0
         self._webcam_distribution_task_handle = None
         self._requested_webcam_snapshots = asyncio.Queue()
         self._webcam_frame = asyncio.Queue(maxsize=3)
 
-    def _initialize_tasks(self) -> None:
+    async def _initialize_tasks(self) -> None:
         """Initialize background tasks."""
         self._background_task = set()
         self._is_stopped = False
