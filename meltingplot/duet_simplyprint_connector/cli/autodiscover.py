@@ -90,7 +90,7 @@ async def get_cookie(duet: RepRapFirmware) -> str:
     return json.load(content)
 
 
-def senertize_url(url: str) -> str:
+def normalize_url(url: str) -> str:
     """Sanitize the URL."""
     if url.startswith('http://') or url.startswith('https://'):
         return url
@@ -100,7 +100,7 @@ def senertize_url(url: str) -> str:
 async def connect_to_duet(address: str, password: str) -> dict:
     """Connect to a printer using the specified IP address and password."""
     duet = RepRapFirmware(
-        address=senertize_url(address),
+        address=normalize_url(address),
         password=password,
     )
 
@@ -129,10 +129,10 @@ async def connect_to_duet(address: str, password: str) -> dict:
 
     return {
         'duet_name': f"{duet_name}",
-        'duet_uri': senertize_url(f'{address}'),
+        'duet_uri': normalize_url(f'{address}'),
         'duet_password': password,
         'duet_unique_id': f"{board['uniqueId']}",
-        'webcam_uri': senertize_url(webcam_uri),
+        'webcam_uri': normalize_url(webcam_uri),
         'cookie': cookie,
     }
 
@@ -225,7 +225,7 @@ class AutoDiscover():
             if config.duet_unique_id in clients:
                 self.app.logger.info(f'Found existing config for {config.duet_unique_id}. Updating.')
 
-                config.duet_uri = senertize_url(clients[config.duet_unique_id]['duet_uri'])
+                config.duet_uri = normalize_url(clients[config.duet_unique_id]['duet_uri'])
                 config.webcam_uri = clients[config.duet_unique_id]['webcam_uri']
                 clients.pop(config.duet_unique_id, None)
 

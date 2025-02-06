@@ -151,10 +151,15 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                 "An exception occurred while initializing the client",
                 exc_info=e,
             )
+            # TODO log to sentry
             self.active = False
 
     async def _initialize_duet(self) -> None:
         """Initialize the Duet printer."""
+        if not self.config.duet_uri.startswith(('http://', 'https://')):
+            self.config.duet_uri = f'http://{self.config.duet_uri}'
+            await self.event_bus.emit(ClientConfigChangedEvent)
+
         duet_api = RepRapFirmware(
             address=self.config.duet_uri,
             password=self.config.duet_password,
@@ -209,17 +214,17 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         network = self.duet.om['network']
 
         if self.config.duet_unique_id is None:
-            self._set_duet_unique_id(board)
-            await self.event_bus.emit(ClientConfigChangedEvent)
+            await self._set_duet_unique_id(board)
         else:
             self._validate_duet_unique_id(board)
 
         self._set_printer_name(network)
         self._set_firmware_info(board)
 
-    def _set_duet_unique_id(self, board: dict) -> None:
+    async def _set_duet_unique_id(self, board: dict) -> None:
         """Set the unique ID if it is not set and emit an event to notify the client."""
         self.config.duet_unique_id = board['uniqueId']
+        await self.event_bus.emit(ClientConfigChangedEvent)
 
     def _validate_duet_unique_id(self, board: dict) -> None:
         """Validate the unique ID."""
