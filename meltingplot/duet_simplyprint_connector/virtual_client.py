@@ -499,6 +499,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         try:
             async for _ in self.duet.api.rr_download(filepath='0:/sys/simplyprint-connector.json'):
                 break
+            await asyncio.sleep(1)
             await self.duet.api.rr_delete(filepath='0:/sys/simplyprint-connector.json')
         except aiohttp.client_exceptions.ClientResponseError:
             self.logger.debug('Cookie not set, setting cookie')

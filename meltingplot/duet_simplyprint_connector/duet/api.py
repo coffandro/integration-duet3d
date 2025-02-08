@@ -23,7 +23,7 @@ def reauthenticate(retries=3):
             while status['retries']:
                 try:
                     return await f(*args, **kwargs)
-                except (TimeoutError, aiohttp.ClientPayloadError) as e:
+                except (TimeoutError, aiohttp.ClientPayloadError, aiohttp.ClientConnectionError) as e:
                     args[0].logger.error(f"{e} - retry")
                     status['retries'] -= 1
                     await asyncio.sleep(5**(retries - status['retries']))
@@ -68,9 +68,16 @@ class RepRapFirmware():
 
     def __attrs_post_init__(self):
         """Post init."""
-        self.callbacks[503] = self._default_http_503_callback
+        self.callbacks[502] = self._default_http_502_bad_gateway_callback
+        self.callbacks[503] = self._default_http_503_busy_callback
 
-    async def _default_http_503_callback(self, e):
+    async def _default_http_502_bad_gateway_callback(self, e):
+        # a reverse proxy may return HTTP status code 502 if the Duet is not available
+        # duet to open socket limit. In this case, we retry the request.
+        self.logger.error('Duet bad gateway  {!s} - retry'.format(e.request_info))
+        await asyncio.sleep(5)
+
+    async def _default_http_503_busy_callback(self, e):
         # Besides, RepRapFirmware may run short on memory and
         # may not be able to respond properly. In this case,
         # HTTP status code 503 is returned.
