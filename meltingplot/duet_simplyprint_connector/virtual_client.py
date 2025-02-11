@@ -354,15 +354,16 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # contrains the progress from 50 - 90 %
         self.printer.file_progress.percent = min(round(50 + (max(0, min(50, progress / 2))), 0), 90.0)
 
-    async def _auto_start_file(self, event: FileDemandData) -> None:
+    async def _auto_start_file(self, filename: str) -> None:
         """Auto start the file after it has been uploaded."""
-        self.printer.job_info.filename = event.file_name
+        self.logger.debug(f"Auto starting file {filename}")
+        self.printer.job_info.filename = filename
         timeout = time.time() + 400  # seconds
 
         while timeout > time.time():
             try:
                 response = await self.duet.api.rr_fileinfo(
-                    name=f"0:/gcodes/{event.file_name}",
+                    name=f"0:/gcodes/{filename}",
                     timeout=aiohttp.ClientTimeout(total=10),
                 )
                 if response['err'] == 0:
@@ -382,7 +383,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             raise TimeoutError('Timeout while waiting for file to be ready')
 
         asyncio.run_coroutine_threadsafe(
-            self.on_start_print(event),
+            self.on_start_print(None),
             self.event_loop,
         )
 
@@ -406,6 +407,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         event: FileDemandData,
     ) -> None:
         """Download a file from Simplyprint.io and upload it to the printer."""
+        self.logger.debug(f"Downloading file from {event.url}")
         downloader = FileDownload(self)
 
         self.printer.file_progress.state = FileProgressStateEnum.DOWNLOADING
@@ -438,23 +440,28 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         return
                     break
                 except aiohttp.ClientResponseError as e:
-                    if e.status in {401, 500}:
+                    if e.status in {401, 500, 503}:
                         await self.duet.api.reconnect()
                     else:
                         # TODO: notify sentry
+                        self.logger.exception(
+                            "An exception occurred while uploading file to Duet",
+                            exc_info=e,
+                        )
                         raise e
                 finally:
                     retries -= 1
 
         if event.auto_start:
-            await self._auto_start_file(event)
+            await self._auto_start_file(event.file_name)
 
         self.printer.file_progress.percent = 100.0
         self.printer.file_progress.state = FileProgressStateEnum.READY
 
-    async def on_file(self, event: FileDemandData) -> None:
+    async def on_file(self, data: FileDemandData) -> None:
         """Download a file from Simplyprint.io to the printer."""
-        await self._download_file_from_sp_and_upload_to_duet(event=event)
+        self.logger.debug(f"on_file called with {data}")
+        await self._download_file_from_sp_and_upload_to_duet(event=data)
 
     async def on_start_print(self, _) -> None:
         """Start the print job."""
