@@ -39,9 +39,9 @@ async def test_disconnect(reprapfirmware, mock_session):
 
 @pytest.mark.asyncio
 async def test_rr_model(reprapfirmware, mock_session):
-    response = await reprapfirmware.rr_model(key='test', frequently=True, verbose=True, depth=99)
+    response = await reprapfirmware.rr_model(key='test', frequently=True, verbose=True, depth=99, array=10)
     assert response == {'err': 0}
-    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_model', params={'key': 'test', 'flags': 'fvd99a0'})
+    mock_session.get.assert_called_once_with('http://10.42.0.2/rr_model', params={'key': 'test', 'flags': 'fvd99a10'})
 
 
 @pytest.mark.asyncio

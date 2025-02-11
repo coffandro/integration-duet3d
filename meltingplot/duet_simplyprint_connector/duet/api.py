@@ -194,7 +194,9 @@ class RepRapFirmware():
             flags.append('o')
 
         flags.append(f"d{depth}")
-        flags.append(f"a{array}")
+
+        if array is not None and array > 0:
+            flags.append(f"a{array}")
 
         params = {
             'key': key if key is not None else '',
