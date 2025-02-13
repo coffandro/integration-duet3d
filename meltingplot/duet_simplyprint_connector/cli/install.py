@@ -37,7 +37,7 @@ def install_as_service():
         # Copy the service file to /etc/systemd/system
         subprocess.check_output(['sudo', 'cp', tmp_file.name, '/etc/systemd/system/simplyprint-connector.service'])
 
-        executable_file = os.path.join(sys.prefix, '/bin/simplyprint')
+    executable_file = os.path.join(sys.prefix, 'bin/simplyprint')
 
     # Make the simplyprint command available outside the venv
     subprocess.run(['sudo', 'ln', '-s', executable_file, '/usr/local/bin/simplyprint'])
