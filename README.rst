@@ -44,7 +44,7 @@ Open an SSH session to your Simplyprint-connected device, such as a Raspberry Pi
 
 .. code-block:: sh
 
-    curl -sfL https://raw.githubusercontent.com/Meltingplot/duet-simplyprint-connector/refs/heads/main/install.sh | bash -
+    source <(curl -sSL https://raw.githubusercontent.com/Meltingplot/duet-simplyprint-connector/refs/heads/main/install.sh)
 
 
 -----------------------------

@@ -16,6 +16,7 @@ def async_task(func):
                     "An exception occurred while running an async function",
                     exc_info=e,
                 )
+                # TODO: log to sentry
 
         task = args[0].event_loop.create_task(_inner(*args, **kwargs))
         args[0]._background_task.add(task)
