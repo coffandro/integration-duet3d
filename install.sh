@@ -3,10 +3,10 @@
 # Ensure you have the required permissions to execute this script.
 
 set -e
+trap 'echo "An error occurred. Exiting..."; return 1' ERR
 
 if [ "$(uname -m)" != "aarch64" ]; then
-    echo "This script is only for 64-bit systems."
-    exit 1
+    echo "We recommand using an 64-bit systems."
 fi
 
 if ! grep -q "bookworm" /etc/os-release; then
@@ -25,7 +25,7 @@ sudo chown "$USER":"$USER" /opt/duet-simplyprint-connector
 sudo chmod 755 /opt/duet-simplyprint-connector
 
 sudo apt-get update
-sudo apt-get install -y git ffmpeg python3-venv gcc g++ make python3-dev
+sudo apt-get install -y git ffmpeg python3-venv gcc g++ make python3-dev libatlas-base-dev libopenblas0 libopenblas-dev liblapack-dev
 
 cd /opt/duet-simplyprint-connector
 python3 -m venv venv
