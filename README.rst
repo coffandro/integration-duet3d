@@ -40,19 +40,12 @@ Missing features:
 ------------
 Installation
 ------------
+Open an SSH session to your Simplyprint-connected device, such as a Raspberry Pi 4B.
 
 .. code-block:: sh
 
-    sudo apt-get install git ffmpeg python3-venv gcc g++ make python3-dev
-    cd ~
-    mkdir mp_duet_simplyprint_connector
-    cd mp_duet_simplyprint_connector
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip setuptools wheel
-    pip install meltingplot.duet_simplyprint_connector
-    simplyprint autodiscover --password=reprap --ipv4-range=192.168.1.0/24 --ipv6-range=::1/128
-    simplyprint install-as-service
+    curl -sfL https://raw.githubusercontent.com/Meltingplot/duet-simplyprint-connector/refs/heads/main/install.sh | bash -
+
 
 -----------------------------
 Content of DuetConnector.json
