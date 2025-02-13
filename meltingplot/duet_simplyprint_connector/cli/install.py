@@ -37,6 +37,11 @@ def install_as_service():
         # Copy the service file to /etc/systemd/system
         subprocess.check_output(['sudo', 'cp', tmp_file.name, '/etc/systemd/system/simplyprint-connector.service'])
 
+        executable_file = os.path.join(sys.prefix, '/bin/simplyprint')
+
+    # Make the simplyprint command available outside the venv
+    subprocess.run(['sudo', 'ln', '-s', executable_file, '/usr/local/bin/simplyprint'])
+
     # Reload the systemd daemon
     subprocess.run(['sudo', 'systemctl', 'daemon-reload'])
 
@@ -45,10 +50,5 @@ def install_as_service():
 
     # Start the service
     subprocess.run(['sudo', 'systemctl', 'start', 'simplyprint-connector'])
-
-    executable_file = os.path.join(sys.prefix, '/bin/simplyprint')
-
-    # Make the simplyprint command available outside the venv
-    subprocess.run(['sudo', 'ln', '-s', executable_file, '/usr/local/bin/simplyprint'])
 
     print('The Simplyprint Connector has been installed as a systemd service.')
