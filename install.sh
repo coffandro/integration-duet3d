@@ -14,6 +14,12 @@ if ! grep -q "bookworm" /etc/os-release; then
     exit 1
 fi
 
+PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+if [[ $(echo -e "3.11\n$PYTHON_VERSION" | sort -V | head -n1) != "3.11" ]]; then
+    echo "Python 3.11 or higher is required."
+    exit 1
+fi
+
 sudo mkdir -p /opt/duet-simplyprint-connector
 sudo chown "$USER":"$USER" /opt/duet-simplyprint-connector
 sudo chmod 755 /opt/duet-simplyprint-connector
