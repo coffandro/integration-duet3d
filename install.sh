@@ -6,7 +6,7 @@ set -e
 trap 'echo "An error occurred. Exiting..."; return 1' ERR
 
 if [ "$(uname -m)" != "aarch64" ]; then
-    echo "We recommand using an 64-bit systems."
+    echo "It is recommended to use a 64-bit system."
 fi
 
 if ! grep -q "bookworm" /etc/os-release; then
