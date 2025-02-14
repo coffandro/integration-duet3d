@@ -35,8 +35,21 @@ def rescan_existing_networks(app):
         try:
             # Attempt to resolve the URI as a URL via DNS
             hostname = urlparse(config.duet_uri).hostname  # Extract hostname from URI
-            ip_address = socket.gethostbyname(hostname)
-            network = ipaddress.ip_network(ip_address, strict=False).supernet(new_prefix=24)
+
+            addr_info = socket.getaddrinfo(hostname, None)
+            for result in addr_info:
+                family, socktype, _, _, sockaddr = result
+                if socktype == socket.SOCK_STREAM:
+                    if family == socket.AF_INET:
+                        ip_address = sockaddr[0]
+                        network = ipaddress.ip_network(ip_address, strict=False).supernet(new_prefix=24)
+                        break
+                    elif family == socket.AF_INET6:
+                        ip_address = sockaddr[0]
+                        # Using /64 as prefix is to large as it includes 18,446,744,073,709,551,616 addresses
+                        # Using /120 as prefix is small enough as it includes 256 addresses
+                        network = ipaddress.ip_network(ip_address, strict=False).supernet(new_prefix=120)
+                        break
         except (socket.gaierror, ValueError, TypeError):
             # If DNS resolution fails, treat it as an IP address directly
             network = ipaddress.ip_network(config.duet_uri, strict=False).supernet(new_prefix=24)
@@ -53,7 +66,10 @@ def run_app(autodiscover, app, profile):
 
     for network, pwd in networks.items():
         click.echo(f"Scanning existing network: {network} with password {pwd}")
-        autodiscover._autodiscover(password=pwd, ipv4_range=network, ipv6_range="::1/128")
+        if ':' in network:
+            autodiscover._autodiscover(password=pwd, ipv6_range=network, ipv4_range='127.0.0.1/32')
+        else:
+            autodiscover._autodiscover(password=pwd, ipv4_range=network, ipv6_range="::1/128")
 
     if profile:
         import cProfile
