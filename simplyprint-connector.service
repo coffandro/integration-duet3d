@@ -1,5 +1,5 @@
 [Unit]
-Description=Meltingplot Duet <-> Simplyprint.io connector
+Description=Meltingplot Duet <-> SimplyPrint.io connector
 After=network.target
 
 [Service]

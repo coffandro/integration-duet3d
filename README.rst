@@ -1,12 +1,14 @@
-Duet RepRapFirmware to Simplyprint.io connector
+SimplyPrint Duet3d integration
 ================================================
 
-This package acts as a bridge between Duet-based 3D printers and the Simplyprint.io cloud service.
+Many thanks to `Tim Schneider <https://github.com/timschneider>`_  at https://github.com/Meltingplot/duet-simplyprint-connector/ for originally creating this integration and allowing us to use it.
+
+This package acts as a bridge between Duet-based 3D printers and the SimplyPrint.io cloud service.
 
 It communicates with the printer using the Duet HTTP API.
 For more information, visit https://github.com/Duet3D/RepRapFirmware/wiki/HTTP-requests.
 
-Communication with Simplyprint.io is handled via the `simplyprint-ws-client`.
+Communication with SimplyPrint.io is handled via the `simplyprint-ws-client`.
 
 ------------
 Status
@@ -32,15 +34,15 @@ Supported features:
 Missing features:
 
 - PSU Control
-- GCode Macros / Scripts [not yet implemented by Simplyprint.io for Duet]
-- GCode terminal [not yet implemented by Simplyprint.io for Duet]
-- Receive messages from Printer in Simplyprint.io [not yet implemented by Simplyprint.io for Duet]
+- GCode Macros / Scripts [not yet implemented by SimplyPrint.io for Duet]
+- GCode terminal [not yet implemented by SimplyPrint.io for Duet]
+- Receive messages from Printer in SimplyPrint.io [not yet implemented by SimplyPrint.io for Duet]
 
 
 ------------
 Installation
 ------------
-Open an SSH session to your Simplyprint-connected device, such as a Raspberry Pi 4B.
+Open an SSH session to your SimplyPrint-connected device, such as a Raspberry Pi 4B.
 
 .. code-block:: sh
 
@@ -74,10 +76,10 @@ The default password for the Duet is `reprap`, even if the web interface does no
 
 
 -----------------------------------------------
-Usage of Meltingplot Duet Simplyprint Connector
+Usage of Meltingplot Duet SimplyPrint Connector
 -----------------------------------------------
 
 - Create a configuration with `simplyprint autodiscover`
 - *Optional* Edit the configuration file `~/.config/SimplyPrint/DuetConnector.json`
 - Start the duet simplyprint connector with `simplyprint start` or `systemctl start simplyprint-connector.service`
-- Add the printer via the Simplyprint.io web interface.
+- Add the printer via the SimplyPrint.io web interface.

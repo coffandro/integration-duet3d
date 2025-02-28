@@ -1,10 +1,10 @@
-"""Installscript of the Duet Simplyprint Connector."""
+"""Installscript of the Duet SimplyPrint Connector."""
 import click
 
 
 @click.command()
 def install_as_service():
-    """Install the Simplyprint Connector as a systemd service."""
+    """Install the SimplyPrint Connector as a systemd service."""
     import os
     import getpass
     import grp
@@ -51,4 +51,4 @@ def install_as_service():
     # Start the service
     subprocess.run(['sudo', 'systemctl', 'start', 'simplyprint-connector'])
 
-    print('The Simplyprint Connector has been installed as a systemd service.')
+    print('The SimplyPrint Connector has been installed as a systemd service.')

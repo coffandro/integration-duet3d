@@ -124,7 +124,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Connect to the Duet board."""
         if self.config.in_setup:
             await self.duet.gcode(
-                f'M291 P"Code: {self.config.short_id}" R"Simplyprint.io Setup" S2',
+                f'M291 P"Code: {self.config.short_id}" R"SimplyPrint.io Setup" S2',
             )
         else:
             await self._check_and_set_cookie()
@@ -229,8 +229,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             raise TimeoutError
 
     async def on_connected(self, _) -> None:
-        """Connect to Simplyprint.io."""
-        self.logger.info('Connected to Simplyprint.io')
+        """Connect to SimplyPrint.io."""
+        self.logger.info('Connected to SimplyPrint.io')
 
         self.use_running_loop()
         self._is_stopped = False
@@ -240,7 +240,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
 
     async def on_remove_connection(self, _) -> None:
         """Remove the connection."""
-        self.logger.info('Disconnected from Simplyprint.io')
+        self.logger.info('Disconnected from SimplyPrint.io')
         self._is_stopped = True
         for task in self._background_task:
             task.cancel()
@@ -311,7 +311,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             elif item.code == 'M300' and self.config.in_setup:
                 response.append(
                     await self.duet.gcode(
-                        f'M291 P"Simplyprint.io Code: {self.config.short_id}" R"Simplyprint Identification" S2',
+                        f'M291 P"SimplyPrint.io Code: {self.config.short_id}" R"SimplyPrint Identification" S2',
                     ),
                 )
             elif item.code == 'M997':
@@ -406,7 +406,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self,
         event: FileDemandData,
     ) -> None:
-        """Download a file from Simplyprint.io and upload it to the printer."""
+        """Download a file from SimplyPrint.io and upload it to the printer."""
         self.logger.debug(f"Downloading file from {event.url}")
         downloader = FileDownload(self)
 
@@ -459,7 +459,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         self.printer.file_progress.state = FileProgressStateEnum.READY
 
     async def on_file(self, data: FileDemandData) -> None:
-        """Download a file from Simplyprint.io to the printer."""
+        """Download a file from SimplyPrint.io to the printer."""
         self.logger.debug(f"on_file called with {data}")
         await self._download_file_from_sp_and_upload_to_duet(event=data)
 

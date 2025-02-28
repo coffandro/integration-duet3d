@@ -89,7 +89,7 @@ class Webcam:
         import simplyprint_ws_client.shared.sp.simplyprint_api as sp_api
 
         self.client.logger.info(
-            f'Sending webcam snapshot id: {request.snapshot_id} endpoint: {request.endpoint or "Simplyprint"}',
+            f'Sending webcam snapshot id: {request.snapshot_id} endpoint: {request.endpoint or "SimplyPrint"}',
         )
         await sp_api.SimplyPrintApi.post_snapshot(
             snapshot_id=request.snapshot_id,
