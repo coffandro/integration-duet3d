@@ -1,7 +1,0 @@
-simplyprint-ws-client==1.0.1rc3
-aiohttp
-attrs
-imageio[ffmpeg]
-psutil
-strenum
-pyee

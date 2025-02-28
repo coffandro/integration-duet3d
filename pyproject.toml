@@ -1,0 +1,55 @@
+[project]
+name = "integration-duet3d"
+version = "1.3.4"
+description = "SimplyPrint integration with any Duet3D powered RepRapFirmware printers "
+readme = "README.rst"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [
+    { name = "Tim Schneider", email = "tim@meltingplot.net" },
+    { name = "SimplyPrint", email = "dev@simplyprint.io" },
+]
+dependencies = [
+    "aiohttp>=3.11.13",
+    "attrs>=25.1.0",
+    "imageio[ffmpeg]>=2.37.0",
+    "psutil>=6.1.1",
+    "pyee>=12.1.1",
+    "simplyprint-ws-client==1.0.1rc3",
+    "strenum>=0.4.15",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.8.3",
+    "flake8>=7.1.2",
+    "flake8-blind-except>=0.2.1",
+    "flake8-bugbear>=24.12.12",
+    "flake8-builtins>=2.5.0",
+    "flake8-commas>=4.0.0",
+    "flake8-comprehensions>=3.16.0",
+    "flake8-docstrings>=1.7.0",
+    "flake8-import-order>=0.18.2",
+    "pep8-naming>=0.14.1",
+    "pytest-asyncio>=0.25.3",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "versioneer>=0.29",
+    "yapf>=0.43.0",
+]
+
+[project.scripts]
+simplyprint-duet3d = "simplyprint_duet3d.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+    "simplyprint_duet3d",
+]
+
+artifacts = [
+    "simplyprint-connector.service"
+]

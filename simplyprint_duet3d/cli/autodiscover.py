@@ -122,7 +122,8 @@ async def connect_to_duet(address: str, password: str) -> dict:
         asyncio.exceptions.TimeoutError,
         OSError,
         KeyError,
-    ):
+    ) as e:
+        print(e)
         return None
     finally:
         await duet.close()

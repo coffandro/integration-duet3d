@@ -324,16 +324,14 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         """Perform self-upgrade and restart the API."""
         self.logger.info('Performing self upgrade')
         try:
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    '-m',
-                    'pip',
-                    'install',
-                    '--upgrade',
-                    'meltingplot.duet_simplyprint_connector',
-                ],
-            )
+            subprocess.check_call([
+                sys.executable,
+                '-m',
+                'pip',
+                'install',
+                '--upgrade',
+                'simplyprint_duet3d',
+            ])
         except subprocess.CalledProcessError as e:
             self.logger.error('Error upgrading: {0}'.format(e))
             # TODO: notify sentry

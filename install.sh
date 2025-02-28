@@ -31,6 +31,6 @@ cd /opt/duet-simplyprint-connector
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip setuptools wheel
-pip install meltingplot.duet_simplyprint_connector
+pip install simplyprint_duet3d
 simplyprint autodiscover
 simplyprint install-as-service

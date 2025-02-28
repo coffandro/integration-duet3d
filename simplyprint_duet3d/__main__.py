@@ -128,7 +128,7 @@ def main():
             params=[click.Option(["--profile"], is_flag=True, help="Enable profiling")],
         ),
     )
-    cli(prog_name="python -m meltingplot.duet_simplyprint_connector")
+    cli(prog_name="python -m simplyprint_duet3d")
 
 
 if __name__ == "__main__":
