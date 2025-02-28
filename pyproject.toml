@@ -6,8 +6,8 @@ readme = "README.rst"
 license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [
-    { name = "Tim Schneider", email = "tim@meltingplot.net" },
     { name = "SimplyPrint", email = "dev@simplyprint.io" },
+    { name = "Tim Schneider", email = "tim@meltingplot.net" },
 ]
 dependencies = [
     "aiohttp>=3.11.13",

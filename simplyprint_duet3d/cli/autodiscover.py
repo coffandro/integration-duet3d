@@ -22,6 +22,7 @@ import io
 import ipaddress
 import json
 import urllib.parse
+from typing import Optional
 
 import aiohttp
 
@@ -97,7 +98,7 @@ def normalize_url(url: str) -> str:
     return f'http://{url}'
 
 
-async def connect_to_duet(address: str, password: str) -> dict:
+async def connect_to_duet(address: str, password: str) -> Optional[dict]:
     """Connect to a printer using the specified IP address and password."""
     duet = RepRapFirmware(
         address=normalize_url(address),
@@ -110,11 +111,20 @@ async def connect_to_duet(address: str, password: str) -> dict:
         board = board['result']
         duet_name = await duet.rr_model(key='network.name')
         duet_name = duet_name['result']
-        webcam_uri = await get_webcam_url(duet)
+
+        try:
+            webcam_uri = await get_webcam_url(duet)
+        except aiohttp.client_exceptions.ClientResponseError:
+            webcam_uri = None
+
         try:
             cookie = await get_cookie(duet)
         except aiohttp.client_exceptions.ClientResponseError:
             cookie = None
+
+    except aiohttp.client_exceptions.ClientResponseError as e:
+        print(e)
+        return None
     except (
         aiohttp.client_exceptions.ClientConnectorError,
         aiohttp.ClientError,
@@ -122,8 +132,7 @@ async def connect_to_duet(address: str, password: str) -> dict:
         asyncio.exceptions.TimeoutError,
         OSError,
         KeyError,
-    ) as e:
-        print(e)
+    ):
         return None
     finally:
         await duet.close()
@@ -133,7 +142,7 @@ async def connect_to_duet(address: str, password: str) -> dict:
         'duet_uri': normalize_url(f'{address}'),
         'duet_password': password,
         'duet_unique_id': f"{board['uniqueId']}",
-        'webcam_uri': normalize_url(webcam_uri),
+        'webcam_uri': normalize_url(webcam_uri) if webcam_uri is not None else None,
         'cookie': cookie,
     }
 
