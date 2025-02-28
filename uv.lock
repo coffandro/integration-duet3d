@@ -512,69 +512,6 @@ wheels = [
 ]
 
 [[package]]
-name = "integration-duet3d"
-version = "1.3.4"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "attrs" },
-    { name = "imageio", extra = ["ffmpeg"] },
-    { name = "psutil" },
-    { name = "pyee" },
-    { name = "simplyprint-ws-client" },
-    { name = "strenum" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "flake8" },
-    { name = "flake8-blind-except" },
-    { name = "flake8-bugbear" },
-    { name = "flake8-builtins" },
-    { name = "flake8-commas" },
-    { name = "flake8-comprehensions" },
-    { name = "flake8-docstrings" },
-    { name = "flake8-import-order" },
-    { name = "pep8-naming" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "versioneer" },
-    { name = "yapf" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.11.13" },
-    { name = "attrs", specifier = ">=25.1.0" },
-    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.0" },
-    { name = "psutil", specifier = ">=6.1.1" },
-    { name = "pyee", specifier = ">=12.1.1" },
-    { name = "simplyprint-ws-client", specifier = "==1.0.1rc3" },
-    { name = "strenum", specifier = ">=0.4.15" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "bandit", specifier = ">=1.8.3" },
-    { name = "flake8", specifier = ">=7.1.2" },
-    { name = "flake8-blind-except", specifier = ">=0.2.1" },
-    { name = "flake8-bugbear", specifier = ">=24.12.12" },
-    { name = "flake8-builtins", specifier = ">=2.5.0" },
-    { name = "flake8-commas", specifier = ">=4.0.0" },
-    { name = "flake8-comprehensions", specifier = ">=3.16.0" },
-    { name = "flake8-docstrings", specifier = ">=1.7.0" },
-    { name = "flake8-import-order", specifier = ">=0.18.2" },
-    { name = "pep8-naming", specifier = ">=0.14.1" },
-    { name = "pytest-asyncio", specifier = ">=0.25.3" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-mock", specifier = ">=3.14.0" },
-    { name = "versioneer", specifier = ">=0.29" },
-    { name = "yapf", specifier = ">=0.43.0" },
-]
-
-[[package]]
 name = "markdown-it-py"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1375,6 +1312,69 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d1/53/43d99d7687e8cdef5ab5f9ec5eaf2c0423c2b35133a2b7e7bc276fc32b21/setuptools-75.8.2.tar.gz", hash = "sha256:4880473a969e5f23f2a2be3646b2dfd84af9028716d398e46192f84bc36900d2", size = 1344083 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/38/7d7362e031bd6dc121e5081d8cb6aa6f6fedf2b67bf889962134c6da4705/setuptools-75.8.2-py3-none-any.whl", hash = "sha256:558e47c15f1811c1fa7adbd0096669bf76c1d3f433f58324df69f3f5ecac4e8f", size = 1229385 },
+]
+
+[[package]]
+name = "simplyprint-duet3d"
+version = "1.3.4"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "attrs" },
+    { name = "imageio", extra = ["ffmpeg"] },
+    { name = "psutil" },
+    { name = "pyee" },
+    { name = "simplyprint-ws-client" },
+    { name = "strenum" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "bandit" },
+    { name = "flake8" },
+    { name = "flake8-blind-except" },
+    { name = "flake8-bugbear" },
+    { name = "flake8-builtins" },
+    { name = "flake8-commas" },
+    { name = "flake8-comprehensions" },
+    { name = "flake8-docstrings" },
+    { name = "flake8-import-order" },
+    { name = "pep8-naming" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-mock" },
+    { name = "versioneer" },
+    { name = "yapf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.11.13" },
+    { name = "attrs", specifier = ">=25.1.0" },
+    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.0" },
+    { name = "psutil", specifier = ">=6.1.1" },
+    { name = "pyee", specifier = ">=12.1.1" },
+    { name = "simplyprint-ws-client", specifier = "==1.0.1rc3" },
+    { name = "strenum", specifier = ">=0.4.15" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bandit", specifier = ">=1.8.3" },
+    { name = "flake8", specifier = ">=7.1.2" },
+    { name = "flake8-blind-except", specifier = ">=0.2.1" },
+    { name = "flake8-bugbear", specifier = ">=24.12.12" },
+    { name = "flake8-builtins", specifier = ">=2.5.0" },
+    { name = "flake8-commas", specifier = ">=4.0.0" },
+    { name = "flake8-comprehensions", specifier = ">=3.16.0" },
+    { name = "flake8-docstrings", specifier = ">=1.7.0" },
+    { name = "flake8-import-order", specifier = ">=0.18.2" },
+    { name = "pep8-naming", specifier = ">=0.14.1" },
+    { name = "pytest-asyncio", specifier = ">=0.25.3" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "versioneer", specifier = ">=0.29" },
+    { name = "yapf", specifier = ">=0.43.0" },
 ]
 
 [[package]]
