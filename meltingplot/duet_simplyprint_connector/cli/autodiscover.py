@@ -110,7 +110,10 @@ async def connect_to_duet(address: str, password: str) -> dict:
         board = board['result']
         duet_name = await duet.rr_model(key='network.name')
         duet_name = duet_name['result']
-        webcam_uri = await get_webcam_url(duet)
+        try:
+            webcam_uri = await get_webcam_url(duet)
+        except aiohttp.client_exceptions.ClientResponseError:
+            webcam_uri = None
         try:
             cookie = await get_cookie(duet)
         except aiohttp.client_exceptions.ClientResponseError:
@@ -132,7 +135,7 @@ async def connect_to_duet(address: str, password: str) -> dict:
         'duet_uri': normalize_url(f'{address}'),
         'duet_password': password,
         'duet_unique_id': f"{board['uniqueId']}",
-        'webcam_uri': normalize_url(webcam_uri),
+        'webcam_uri': normalize_url(webcam_uri) if webcam_uri is not None else None,
         'cookie': cookie,
     }
 
