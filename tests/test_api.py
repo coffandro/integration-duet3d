@@ -82,7 +82,7 @@ async def test_rr_upload(reprapfirmware, mock_session):
     content = b'testtttttt'
     response = await reprapfirmware.rr_upload('test.txt', content)
     assert response == {'err': 0}
-    mock_session.post.assert_called_once_with('http://10.42.0.2/rr_upload', data=content, params={'name': 'test.txt', 'crc32': '075b1c7c'})
+    mock_session.post.assert_called_once_with('http://10.42.0.2/rr_upload', data=content, params={'name': 'test.txt', 'crc32': '075b1c7c'}, headers={'Content-Length': '10'})
 
 
 @pytest.mark.asyncio

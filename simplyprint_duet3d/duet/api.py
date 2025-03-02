@@ -290,8 +290,12 @@ class RepRapFirmware():
 
         params['crc32'] = '{0:08x}'.format(checksum)
 
+        headers = {
+            'Content-Length': str(len(content)),
+        }
+
         response = b''
-        async with self.session.post(url, data=content, params=params) as r:
+        async with self.session.post(url, data=content, params=params, headers=headers) as r:
             response = await r.json()
         return response
 
@@ -341,12 +345,17 @@ class RepRapFirmware():
             total=60 * 30,  # 30 minutes
         )
 
+        headers = {
+            'Content-Length': str(filesize),
+        }
+
         response = b''
         async with self.session.post(
             url=url,
             data=file_chunk(),
             params=params,
             timeout=timeout,
+            headers=headers,
         ) as r:
             response = await r.json()
 
