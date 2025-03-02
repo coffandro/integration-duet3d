@@ -119,6 +119,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             self.printer.info.machine = self.config.duet_name or self.config.duet_uri
         else:
             self.printer.info.machine = PhysicalMachine.machine()
+        self.printer.webcam_info.connected = self.config.webcam_uri is not None
 
     async def _duet_on_connect(self) -> None:
         """Connect to the Duet board."""
