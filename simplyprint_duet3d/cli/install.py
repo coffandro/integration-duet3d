@@ -13,9 +13,8 @@ def install_as_service():
     import tempfile
 
     # Get the path of the service file
-    service_file = os.path.join(sys.prefix, 'simplyprint-duet3d.service')
-
-    service_content = None
+    parent_folder = os.path.dirname(os.path.abspath(__file__))
+    service_file = os.path.join(parent_folder, '../../simplyprint-duet3d.service')
 
     # Read the content of the service file
     with open(service_file, 'r') as file:
@@ -46,9 +45,9 @@ def install_as_service():
     subprocess.run(['sudo', 'systemctl', 'daemon-reload'])
 
     # Enable the service
-    subprocess.run(['sudo', 'systemctl', 'enable', 'simplyprint-connector'])
+    subprocess.run(['sudo', 'systemctl', 'enable', 'simplyprint-duet3d'])
 
     # Start the service
-    subprocess.run(['sudo', 'systemctl', 'start', 'simplyprint-connector'])
+    subprocess.run(['sudo', 'systemctl', 'start', 'simplyprint-duet3d'])
 
     print('The SimplyPrint Connector has been installed as a systemd service.')
