@@ -32,5 +32,5 @@ python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip setuptools wheel
 pip install simplyprint_duet3d
-simplyprint autodiscover
-simplyprint install-as-service
+simplyprint-duet3d autodiscover
+simplyprint-duet3d install-as-service

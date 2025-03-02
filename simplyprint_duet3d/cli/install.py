@@ -13,7 +13,7 @@ def install_as_service():
     import tempfile
 
     # Get the path of the service file
-    service_file = os.path.join(sys.prefix, 'simplyprint-connector.service')
+    service_file = os.path.join(sys.prefix, 'simplyprint-duet3d.service')
 
     service_content = None
 
@@ -35,7 +35,7 @@ def install_as_service():
         tmp_file.flush()
 
         # Copy the service file to /etc/systemd/system
-        subprocess.check_output(['sudo', 'cp', tmp_file.name, '/etc/systemd/system/simplyprint-connector.service'])
+        subprocess.check_output(['sudo', 'cp', tmp_file.name, '/etc/systemd/system/simplyprint-duet3d.service'])
 
     executable_file = os.path.join(sys.prefix, 'bin/simplyprint')
 

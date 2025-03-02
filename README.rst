@@ -79,7 +79,7 @@ The default password for the Duet is `reprap`, even if the web interface does no
 Usage of Meltingplot Duet SimplyPrint Connector
 -----------------------------------------------
 
-- Create a configuration with `simplyprint autodiscover`
+- Create a configuration with `simplyprint-duet3d autodiscover`
 - *Optional* Edit the configuration file `~/.config/SimplyPrint/DuetConnector.json`
-- Start the duet simplyprint connector with `simplyprint start` or `systemctl start simplyprint-connector.service`
+- Start the duet simplyprint connector with `simplyprint-duet3d start` or `systemctl start simplyprint-duet3d.service`
 - Add the printer via the SimplyPrint.io web interface.
