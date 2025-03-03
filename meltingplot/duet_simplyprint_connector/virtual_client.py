@@ -279,6 +279,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         M190
         M109
         M155 # not supported by reprapfirmware
+        M701 S"filament name" load filament
+        M702 unload filament
         """
         self.logger.debug("Received Gcode: {!r}".format(event.list))
 
@@ -297,6 +299,8 @@ class VirtualClient(DefaultClient[VirtualConfig]):
             'M190',
             'M220',
             'M221',
+            'M701',
+            'M702',
             'G1',
             'G28',
             'G29',
