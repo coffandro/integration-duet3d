@@ -64,19 +64,41 @@ async def get_webcam_url(duet: RepRapFirmware) -> str:
     except KeyError:
         return None
 
+    if "[HOSTNAME]" in webcam_url:
+        # urlparse is not able to parse the URL if it contains [HOSTNAME]
+        # as it will handle it like an IPv6 address
+        webcam_url = webcam_url.replace("[HOSTNAME]", "HOSTNAME")
+
     webcam_url_parse = urllib.parse.urlparse(webcam_url)
     schema = webcam_url_parse.scheme
     hostname = webcam_url_parse.netloc
 
-    if hostname == '[HOSTNAME]' or hostname == '':
+    if webcam_url_parse.hostname.lower() == 'hostname' or hostname == '':
         duet_url_parse = urllib.parse.urlparse(duet.address)
-        hostname = duet_url_parse.netloc if duet_url_parse.netloc != '' else duet_url_parse.geturl()
+
+        if duet_url_parse.hostname != '':
+            hostname = duet_url_parse.hostname
+        if webcam_url_parse.port is not None:
+            hostname = f"{hostname}:{webcam_url_parse.port}"
+        if hostname == '':
+            # fallback
+            hostname = duet_url_parse.geturl()
+
         schema = duet_url_parse.scheme
 
     if schema == '':
         schema = 'http'
 
-    webcam_url = urllib.parse.urlunparse((schema, hostname, webcam_url_parse.path, '', '', ''))
+    webcam_url = urllib.parse.urlunparse(
+        (
+            schema,
+            hostname,
+            webcam_url_parse.path,
+            webcam_url_parse.params,
+            webcam_url_parse.query,
+            webcam_url_parse.fragment,
+        ),
+    )
 
     return webcam_url
 
