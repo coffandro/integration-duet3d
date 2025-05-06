@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from meltingplot.duet_simplyprint_connector.cli.autodiscover import get_webcam_url, download_dwc_file
-from meltingplot.duet_simplyprint_connector.duet.api import RepRapFirmware
+from simplyprint_duet3d.cli.autodiscover import get_webcam_url, download_dwc_file
+from simplyprint_duet3d.duet.api import RepRapFirmware
 
-import meltingplot.duet_simplyprint_connector.cli.autodiscover
+import simplyprint_duet3d.cli.autodiscover
 
 @pytest.mark.asyncio
 async def test_get_webcam_url_with_hostname():
@@ -24,7 +24,7 @@ async def test_get_webcam_url_with_hostname():
     # Replace the actual download_dwc_file with the mock
     global download_dwc_file
     original_download_dwc_file = download_dwc_file
-    meltingplot.duet_simplyprint_connector.cli.autodiscover.download_dwc_file = mock_download_dwc_file
+    simplyprint_duet3d.cli.autodiscover.download_dwc_file = mock_download_dwc_file
     #download_dwc_file = mock_download_dwc_file
 
     try:
