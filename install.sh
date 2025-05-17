@@ -25,7 +25,7 @@ sudo chown "$USER":"$USER" /opt/duet-simplyprint-connector
 sudo chmod 755 /opt/duet-simplyprint-connector
 
 sudo apt-get update
-sudo apt-get install -y git ffmpeg python3-venv gcc g++ make python3-dev libatlas-base-dev libopenblas0 libopenblas-dev liblapack-dev
+sudo apt-get install -y git ffmpeg python3-venv gcc g++ make python3-dev libatlas-base-dev libopenblas0 libopenblas-dev liblapack-dev libjpeg-dev
 
 cd /opt/duet-simplyprint-connector
 python3 -m venv venv
