@@ -154,3 +154,7 @@ echo "   • Resolution: $RES"
 echo "   • Frame rate: ${FRAMERATE} fps"
 echo "   • Stream:     http://<this_host_ip>:8080/?action=stream"
 echo "   • Snapshot:   http://<this_host_ip>:8080/?action=snapshot"
+
+sleep 1
+
+journalctl -xeu --no-pager mjpeg-streamer
