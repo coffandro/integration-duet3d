@@ -157,4 +157,4 @@ echo "   • Snapshot:   http://<this_host_ip>:8080/?action=snapshot"
 
 sleep 1
 
-journalctl -xeu --no-pager mjpeg-streamer
+journalctl -xeu mjpeg-streamer --no-pager
