@@ -105,13 +105,12 @@ def main():
         config_factory=VirtualConfig,
         allow_setup=True,
         config_manager_t=ConfigManagerType.JSON,
-        backend=SimplyPrintBackend.PRODUCTION,
     )
 
     ClientHandler.setup_logging(settings)
-    logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger("PIL").setLevel(logging.INFO)
-    logging.getLogger("aiohttp.client").setLevel(logging.INFO)
+    # logging.getLogger().setLevel(logging.INFO)
+    # logging.getLogger("PIL").setLevel(logging.INFO)
+    # logging.getLogger("aiohttp.client").setLevel(logging.INFO)
 
     app = ClientApp(settings)
     cli = ClientCli(app)

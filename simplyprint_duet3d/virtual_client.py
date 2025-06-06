@@ -13,6 +13,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from typing import Optional
+from pathlib import Path
+import os
 
 import aiohttp
 
@@ -419,7 +421,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
         # Initiate the file progress task to send updates every 10 seconds.
         await self._fileprogress_task()
 
-        with tempfile.NamedTemporaryFile(suffix='.gcode') as f:
+        with tempfile.NamedTemporaryFile() as f:
             async for chunk in downloader.download(
                 url=event.url,
                 clamp_progress=(lambda x: float(max(0.0, min(50.0, x / 2.0)))),
@@ -437,7 +439,7 @@ class VirtualClient(DefaultClient[VirtualConfig]):
                         filepath=f'{prefix}{event.file_name}',
                         file=f,
                         progress=self._upload_file_progress,
-                    )
+                    ) 
                     if response['err'] != 0:
                         self.printer.file_progress.state = FileProgressStateEnum.ERROR
                         return
